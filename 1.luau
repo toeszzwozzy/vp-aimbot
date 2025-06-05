@@ -31,30 +31,6 @@ end
 local mousemoverel = mousemoverel or (Input and Input.MouseMove)
 local queueonteleport = queue_on_teleport or syn.queue_on_teleport
 
---// Team Configuration
-Environment.TeamConfig = {
-	CopConfig = {
-		TargetTeams = {
-			"Booking",
-			"Escapee",
-			"Maxium Security",
-			"Medium Secruity",
-			"Minimum Secruity"
-		}
-	},
-	PrisonerConfig = {
-		TargetTeams = {
-			"Civilan",
-			"Department of Corrections",
-			"Sheriff's Office",
-			"State Police",
-			"VCSO-SWAT",
-			"Weapons",
-			"Tester"
-		}
-	}
-}
-
 --// Script Settings
 Environment.Settings = {
 	SendNotifications = false,
@@ -130,36 +106,40 @@ local function SendNotification(TitleArg, DescriptionArg, DurationArg)
 	end
 end
 
---// Team Configuration Functions
 local function IsValidTarget(player)
-	if not Environment.Settings.UseTeamConfig then
-		return true -- If team config is disabled, all players are valid targets
-	end
-	
-	if not player.Team then
-		return false -- No team assigned
-	end
-	
-	local playerTeamName = player.Team.Name
-	local targetTeams = {}
-	
-	-- Get the appropriate target teams based on player role
-	if Environment.Settings.PlayerRole == "Cop" then
-		targetTeams = Environment.TeamConfig.CopConfig.TargetTeams
-	elseif Environment.Settings.PlayerRole == "Prisoner" then
-		targetTeams = Environment.TeamConfig.PrisonerConfig.TargetTeams
-	else
-		return false -- Invalid role
-	end
-	
-	-- Check if the player's team is in the target list
-	for _, targetTeam in pairs(targetTeams) do
-		if playerTeamName == targetTeam then
-			return true
-		end
-	end
-	
-	return false -- Team not in target list
+    if not player.Team then
+        return true -- No team assigned, allow targeting
+    end
+    
+    local playerTeamName = player.Team.Name
+    
+    -- If team check is enabled, don't target same team
+    if getgenv().AimbotSettings and getgenv().AimbotSettings.TeamCheck and player.Team == LocalPlayer.Team then
+        return false
+    end
+    
+    -- If cop config is enabled, only target cop target teams
+    if getgenv().AimbotSettings and getgenv().AimbotSettings.CopConfig and getgenv().CopTargetTeams then
+        for _, targetTeam in pairs(getgenv().CopTargetTeams) do
+            if playerTeamName == targetTeam then
+                return true
+            end
+        end
+        return false
+    end
+    
+    -- If prisoner config is enabled, only target prisoner target teams
+    if getgenv().AimbotSettings and getgenv().AimbotSettings.PrisonerConfig and getgenv().PrisonerTargetTeams then
+        for _, targetTeam in pairs(getgenv().PrisonerTargetTeams) do
+            if playerTeamName == targetTeam then
+                return true
+            end
+        end
+        return false
+    end
+    
+    -- If no special configs are enabled, allow all targets (except team check)
+    return true
 end
 
 --// Functions
@@ -423,9 +403,7 @@ function Environment.Functions:ResetSettings()
 		ThirdPersonSensitivity = 3,
 		TriggerKey = "MouseButton2",
 		Toggle = false,
-		LockPart = "Head", -- Body part to lock on
-		UseTeamConfig = false,
-		PlayerRole = "Cop"
+		LockPart = "Head" -- Body part to lock on
 	}
 	
 	Environment.FOVSettings = {
