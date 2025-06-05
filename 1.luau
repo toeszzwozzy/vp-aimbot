@@ -45,6 +45,8 @@ Environment.Settings = {
 	ThirdPersonSensitivity = 3, -- Boundary: 0.1 - 5
 	TriggerKey = "MouseButton2",
 	Toggle = false,
+	CopMode = false,
+	PrisonerMode = false,
 	LockPart = "Head" -- Body part to lock on
 }
 
@@ -68,6 +70,28 @@ Environment.PredictionSettings = {
 	PingBasedMultiplier = 0.001, -- Multiplier for ping-based prediction
 	CustomPrediction = 0.2
 }
+
+Environment.TeamConfig = {
+        Cop = {
+            Teams = {
+                "Department of Corrections",
+                "Sheriff's Office",
+                "State Police",
+                "VCSO-SWAT",
+                "WeaponsTester"
+            }
+        },
+        Prisoner = {
+            Teams = {
+                "Booking",
+                "Escapee",
+                "Maxium Security",
+                "Medium Secruity",
+                "Minimum Secruity",
+                "Civilan"
+            }
+        }
+    }
 
 Environment.FOVCircle = Drawing.new("Circle")
 Environment.Locked = nil
@@ -386,28 +410,6 @@ function Environment.Functions:ResetSettings()
         LockPart = "Head", -- Body part to lock on
         CopMode = false,  -- Only target prisoners when enabled
         PrisonerMode = false  -- Only target cops when enabled
-    }
-
-	Environment.TeamConfig = {
-        Cop = {
-            Teams = {
-                "Department of Corrections",
-                "Sheriff's Office",
-                "State Police",
-                "VCSO-SWAT",
-                "WeaponsTester"
-            }
-        },
-        Prisoner = {
-            Teams = {
-                "Booking",
-                "Escapee",
-                "Maxium Security",
-                "Medium Secruity",
-                "Minimum Secruity",
-                "Civilan"
-            }
-        }
     }
 	
 	Environment.FOVSettings = {
