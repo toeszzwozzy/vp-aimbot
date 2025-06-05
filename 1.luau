@@ -20,7 +20,7 @@ local Stats = game:GetService("Stats")
 --// Variables
 local LocalPlayer = Players.LocalPlayer
 local Title = "Exunys Developer"
-local FileNames = {"Aimbot", "Configuration.json", "Drawing.json", "Prediction.json"}
+local FileNames = {"Aimbot", "Configuration.json", "Drawing.json", "Prediction.json", "TeamConfig.json"}
 local Typing, Running, Animation, RequiredDistance, ServiceConnections = false, false, nil, 2000, {}
 
 if isfolder(Title) then
@@ -30,6 +30,30 @@ end
 --// Support Functions
 local mousemoverel = mousemoverel or (Input and Input.MouseMove)
 local queueonteleport = queue_on_teleport or syn.queue_on_teleport
+
+--// Team Configuration
+Environment.TeamConfig = {
+	CopConfig = {
+		TargetTeams = {
+			"Booking",
+			"Escapee",
+			"Maxium Security",
+			"Medium Secruity",
+			"Minimum Secruity"
+		}
+	},
+	PrisonerConfig = {
+		TargetTeams = {
+			"Civilan",
+			"Department of Corrections",
+			"Sheriff's Office",
+			"State Police",
+			"VCSO-SWAT",
+			"Weapons",
+			"Tester"
+		}
+	}
+}
 
 --// Script Settings
 Environment.Settings = {
@@ -46,30 +70,8 @@ Environment.Settings = {
 	TriggerKey = "MouseButton2",
 	Toggle = false,
 	LockPart = "Head", -- Body part to lock on
-	ConfigMode = "Cop" -- "Cop" or "Prisoner"
-}
-
---// Team Configurations
-Environment.TeamConfigs = {
-	Cop = {
-		TargetTeams = {
-			"Booking",
-			"Escapee",
-			"Maximum Security",
-			"Medium Security",
-			"Minimum Security"
-		}
-	},
-	Prisoner = {
-		TargetTeams = {
-			"Civilian",
-			"Department of Corrections",
-			"Sheriff's Office",
-			"State Police",
-			"VCSO-SWAT",
-			"WeaponsTester"
-		}
-	}
+	UseTeamConfig = false, -- Enable team-based targeting
+	PlayerRole = "Cop" -- "Cop" or "Prisoner"
 }
 
 Environment.FOVSettings = {
@@ -128,21 +130,53 @@ local function SendNotification(TitleArg, DescriptionArg, DurationArg)
 	end
 end
 
+--// Team Configuration Functions
+local function IsValidTarget(player)
+	if not Environment.Settings.UseTeamConfig then
+		return true -- If team config is disabled, all players are valid targets
+	end
+	
+	if not player.Team then
+		return false -- No team assigned
+	end
+	
+	local playerTeamName = player.Team.Name
+	local targetTeams = {}
+	
+	-- Get the appropriate target teams based on player role
+	if Environment.Settings.PlayerRole == "Cop" then
+		targetTeams = Environment.TeamConfig.CopConfig.TargetTeams
+	elseif Environment.Settings.PlayerRole == "Prisoner" then
+		targetTeams = Environment.TeamConfig.PrisonerConfig.TargetTeams
+	else
+		return false -- Invalid role
+	end
+	
+	-- Check if the player's team is in the target list
+	for _, targetTeam in pairs(targetTeams) do
+		if playerTeamName == targetTeam then
+			return true
+		end
+	end
+	
+	return false -- Team not in target list
+end
+
 --// Functions
 local function SaveSettings()
 	if Environment.Settings.SaveSettings then
-		if not isfolder(Title) then
-			makefolder(Title)
+		if isfile(Title.."/"..FileNames[1].."/"..FileNames[2]) then
+			writefile(Title.."/"..FileNames[1].."/"..FileNames[2], Encode(Environment.Settings))
 		end
-		if not isfolder(Title.."/"..FileNames[1]) then
-			makefolder(Title.."/"..FileNames[1])
+		if isfile(Title.."/"..FileNames[1].."/"..FileNames[3]) then
+			writefile(Title.."/"..FileNames[1].."/"..FileNames[3], Encode(Environment.FOVSettings))
 		end
-		writefile(Title.."/"..FileNames[1].."/"..FileNames[2], Encode({
-			Settings = Environment.Settings,
-			TeamConfigs = Environment.TeamConfigs
-		}))
-		writefile(Title.."/"..FileNames[1].."/"..FileNames[3], Encode(Environment.FOVSettings))
-		writefile(Title.."/"..FileNames[1].."/"..FileNames[4], Encode(Environment.PredictionSettings))
+		if isfile(Title.."/"..FileNames[1].."/"..FileNames[4]) then
+			writefile(Title.."/"..FileNames[1].."/"..FileNames[4], Encode(Environment.PredictionSettings))
+		end
+		if isfile(Title.."/"..FileNames[1].."/"..FileNames[5]) then
+			writefile(Title.."/"..FileNames[1].."/"..FileNames[5], Encode(Environment.TeamConfig))
+		end
 	end
 end
 
@@ -174,19 +208,12 @@ local function GetClosestPlayer()
         for _, v in next, Players:GetPlayers() do
             if v ~= LocalPlayer then
                 if v.Character and v.Character:FindFirstChild(Environment.Settings.LockPart) and v.Character:FindFirstChildOfClass("Humanoid") then
-                    if Environment.Settings.TeamCheck then
-                        local validTeam = false
-                        local targetTeams = Environment.TeamConfigs[Environment.Settings.ConfigMode].TargetTeams
-                        for _, teamName in ipairs(targetTeams) do
-                            if v.Team and v.Team.Name == teamName then
-                                validTeam = true
-                                break
-                            end
-                        end
-                        if not validTeam then continue end
-                    end
+                    if Environment.Settings.TeamCheck and v.Team == LocalPlayer.Team then continue end
                     if Environment.Settings.AliveCheck and v.Character:FindFirstChildOfClass("Humanoid").Health <= 0 then continue end
                     if Environment.Settings.WallCheck and #(Camera:GetPartsObscuringTarget({v.Character[Environment.Settings.LockPart].Position}, v.Character:GetDescendants())) > 0 then continue end
+                    
+                    -- Team configuration check
+                    if not IsValidTarget(v) then continue end
                     
                     local Vector, OnScreen = Camera:WorldToViewportPoint(v.Character[Environment.Settings.LockPart].Position)
                     local Distance = (Vector2.new(UserInputService:GetMouseLocation().X, UserInputService:GetMouseLocation().Y) - Vector2.new(Vector.X, Vector.Y)).Magnitude
@@ -200,7 +227,7 @@ local function GetClosestPlayer()
         end
     elseif (Vector2.new(UserInputService:GetMouseLocation().X, UserInputService:GetMouseLocation().Y) - Vector2.new(Camera:WorldToViewportPoint(Environment.Locked.Character[Environment.Settings.LockPart].Position).X, Camera:WorldToViewportPoint(Environment.Locked.Character[Environment.Settings.LockPart].Position).Y)).Magnitude > RequiredDistance then
         Environment.Locked = nil
-        if Animation then
+        if Animation then  -- Add this nil check
             Animation:Cancel()
         end
         Environment.FOVCircle.Color = GetColor(Environment.FOVSettings.Color)
@@ -225,24 +252,24 @@ if Environment.Settings.SaveSettings then
 		makefolder(Title.."/"..FileNames[1])
 	end
 	if not isfile(Title.."/"..FileNames[1].."/"..FileNames[2]) then
-		writefile(Title.."/"..FileNames[1].."/"..FileNames[2], Encode({
-			Settings = Environment.Settings,
-			TeamConfigs = Environment.TeamConfigs
-		}))
+		writefile(Title.."/"..FileNames[1].."/"..FileNames[2], Encode(Environment.Settings))
 	else
-		local configData = Decode(readfile(Title.."/"..FileNames[1].."/"..FileNames[2]))
-		Environment.Settings = configData.Settings or Environment.Settings
-		Environment.TeamConfigs = configData.TeamConfigs or Environment.TeamConfigs
+		Environment.Settings = Decode(readfile(Title.."/"..FileNames[1].."/"..FileNames[2]))
 	end
 	if not isfile(Title.."/"..FileNames[1].."/"..FileNames[3]) then
 		writefile(Title.."/"..FileNames[1].."/"..FileNames[3], Encode(Environment.FOVSettings))
 	else
-		Environment.FOVSettings = Decode(readfile(Title.."/"..FileNames[1].."/"..FileNames[3]))
+		Environment.Visuals = Decode(readfile(Title.."/"..FileNames[1].."/"..FileNames[3]))
 	end
 	if not isfile(Title.."/"..FileNames[1].."/"..FileNames[4]) then
 		writefile(Title.."/"..FileNames[1].."/"..FileNames[4], Encode(Environment.PredictionSettings))
 	else
 		Environment.PredictionSettings = Decode(readfile(Title.."/"..FileNames[1].."/"..FileNames[4]))
+	end
+	if not isfile(Title.."/"..FileNames[1].."/"..FileNames[5]) then
+		writefile(Title.."/"..FileNames[1].."/"..FileNames[5], Encode(Environment.TeamConfig))
+	else
+		Environment.TeamConfig = Decode(readfile(Title.."/"..FileNames[1].."/"..FileNames[5]))
 	end
 	coroutine.wrap(function()
 		while wait(10) and Environment.Settings.SaveSettings do
@@ -269,6 +296,7 @@ local function Load()
 		else
 			Environment.FOVCircle.Visible = false
 		end
+
 		if Running and Environment.Settings.Enabled then
 			GetClosestPlayer()
 			if Environment.Locked and Environment.Locked.Character and Environment.Locked.Character:FindFirstChild(Environment.Settings.LockPart) then
@@ -293,7 +321,7 @@ local function Load()
 		end
 	end)
 
-	ServiceConnections.InputBeganConnection = UserInputService.InputBegan:Connect(function(Input)
+		ServiceConnections.InputBeganConnection = UserInputService.InputBegan:Connect(function(Input)
 	    if not Typing then
 	        pcall(function()
 	            if Input.KeyCode == Enum.KeyCode[Environment.Settings.TriggerKey] then
@@ -301,7 +329,7 @@ local function Load()
 	                    Running = not Running
 	                    if not Running then
 	                        Environment.Locked = nil
-	                        if Animation then
+	                        if Animation then  -- Add this nil check
 	                            Animation:Cancel()
 	                        end
 	                        Environment.FOVCircle.Color = GetColor(Environment.FOVSettings.Color)
@@ -317,7 +345,7 @@ local function Load()
 	                    Running = not Running
 	                    if not Running then
 	                        Environment.Locked = nil
-	                        if Animation then
+	                        if Animation then  -- Add this nil check
 	                            Animation:Cancel()
 	                        end
 	                        Environment.FOVCircle.Color = GetColor(Environment.FOVSettings.Color)
@@ -327,7 +355,7 @@ local function Load()
 	                end
 	            end
 	        end)
-	    end
+	    end  -- This end was missing
 	end)
 
 	ServiceConnections.InputEndedConnection = UserInputService.InputEnded:Connect(function(Input)
@@ -337,7 +365,7 @@ local function Load()
 					if not Environment.Settings.Toggle then
 					    Running = false
 					    Environment.Locked = nil
-					    if Animation then
+					    if Animation then  -- Add this nil check
 					        Animation:Cancel()
 					    end
 					    Environment.FOVCircle.Color = GetColor(Environment.FOVSettings.Color)
@@ -349,7 +377,7 @@ local function Load()
 					if not Environment.Settings.Toggle then
 					    Running = false
 					    Environment.Locked = nil
-					    if Animation then
+					    if Animation then  -- Add this nil check
 					        Animation:Cancel()
 					    end
 					    Environment.FOVCircle.Color = GetColor(Environment.FOVSettings.Color)
@@ -396,29 +424,8 @@ function Environment.Functions:ResetSettings()
 		TriggerKey = "MouseButton2",
 		Toggle = false,
 		LockPart = "Head", -- Body part to lock on
-		ConfigMode = "Cop"
-	}
-	
-	Environment.TeamConfigs = {
-		Cop = {
-			TargetTeams = {
-				"Booking",
-				"Escapee",
-				"Maximum Security",
-				"Medium Security",
-				"Minimum Security"
-			}
-		},
-		Prisoner = {
-			TargetTeams = {
-				"Civilian",
-				"Department of Corrections",
-				"Sheriff's Office",
-				"State Police",
-				"VCSO-SWAT",
-				"WeaponsTester"
-			}
-		}
+		UseTeamConfig = false,
+		PlayerRole = "Cop"
 	}
 	
 	Environment.FOVSettings = {
@@ -429,7 +436,7 @@ function Environment.Functions:ResetSettings()
 		LockedColor = "255, 70, 70",
 		Transparency = 0.5,
 		Sides = 60,
-		Thickness = 1,
+        Thickness = 1,
 		Filled = false
 	}
 	
@@ -440,6 +447,99 @@ function Environment.Functions:ResetSettings()
 		PingBasedMultiplier = 0.001, -- Multiplier for ping-based prediction
 		CustomPrediction = 0.2
 	}
+
+	Environment.TeamConfig = {
+		CopConfig = {
+			TargetTeams = {
+				"Booking",
+				"Escapee",
+				"Maxium Security",
+				"Medium Secruity",
+				"Minimum Secruity"
+			}
+		},
+		PrisonerConfig = {
+			TargetTeams = {
+				"Civilan",
+				"Department of Corrections",
+				"Sheriff's Office",
+				"State Police",
+				"VCSO-SWAT",
+				"Weapons",
+				"Tester"
+			}
+		}
+	}
+end
+
+--// Team Configuration Helper Functions (for easy reference in other scripts)
+function Environment.Functions:SetPlayerRole(role)
+	if role == "Cop" or role == "Prisoner" then
+		Environment.Settings.PlayerRole = role
+		Environment.Settings.UseTeamConfig = true
+		SaveSettings()
+		return true
+	else
+		return false
+	end
+end
+
+function Environment.Functions:GetTargetTeams()
+	if Environment.Settings.PlayerRole == "Cop" then
+		return Environment.TeamConfig.CopConfig.TargetTeams
+	elseif Environment.Settings.PlayerRole == "Prisoner" then
+		return Environment.TeamConfig.PrisonerConfig.TargetTeams
+	else
+		return {}
+	end
+end
+
+function Environment.Functions:AddTargetTeam(teamName)
+	local targetTeams = {}
+	if Environment.Settings.PlayerRole == "Cop" then
+		targetTeams = Environment.TeamConfig.CopConfig.TargetTeams
+	elseif Environment.Settings.PlayerRole == "Prisoner" then
+		targetTeams = Environment.TeamConfig.PrisonerConfig.TargetTeams
+	else
+		return false
+	end
+	
+	-- Check if team already exists
+	for _, team in pairs(targetTeams) do
+		if team == teamName then
+			return false -- Team already exists
+		end
+	end
+	
+	table.insert(targetTeams, teamName)
+	SaveSettings()
+	return true
+end
+
+function Environment.Functions:RemoveTargetTeam(teamName)
+	local targetTeams = {}
+	if Environment.Settings.PlayerRole == "Cop" then
+		targetTeams = Environment.TeamConfig.CopConfig.TargetTeams
+	elseif Environment.Settings.PlayerRole == "Prisoner" then
+		targetTeams = Environment.TeamConfig.PrisonerConfig.TargetTeams
+	else
+		return false
+	end
+	
+	for i, team in pairs(targetTeams) do
+		if team == teamName then
+			table.remove(targetTeams, i)
+			SaveSettings()
+			return true
+		end
+	end
+	
+	return false -- Team not found
+end
+
+function Environment.Functions:ToggleTeamConfig(enabled)
+	Environment.Settings.UseTeamConfig = enabled
+	SaveSettings()
 end
 
 --// Support Check
@@ -457,4 +557,4 @@ if Environment.Settings.ReloadOnTeleport then
 end
 
 --// Load
-Load()
+Load();
