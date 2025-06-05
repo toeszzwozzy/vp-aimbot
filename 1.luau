@@ -71,28 +71,6 @@ Environment.PredictionSettings = {
 	CustomPrediction = 0.2
 }
 
-Environment.TeamConfig = {
-    Cop = {
-        Teams = {
-            "Department of Corrections",
-            "Sheriff's Office",
-            "State Police",
-            "VCSO-SWAT",
-            "WeaponsTester"
-        }
-    },
-    Prisoner = {
-        Teams = {
-            "Booking",
-            "Escapee",
-            "Maxium Security",
-            "Medium Secruity",
-            "Minimum Secruity",
-            "Civilan"
-        }
-    }
-}
-
 Environment.FOVCircle = Drawing.new("Circle")
 Environment.Locked = nil
 
@@ -161,18 +139,37 @@ local function GetPredictionValue()
 	return Environment.PredictionSettings.DefaultPrediction
 end
 
+-- Define the teams directly in the function to avoid any potential issues with the Environment table
 function IsPlayerInTeamCategory(player, category)
     if not player or not player.Team then return false end
     
     local teamName = player.Team.Name
+    
     if category == "Cop" then
-        for _, team in ipairs(Environment.TeamConfig.Cop.Teams) do
+        local copTeams = {
+            "Department of Corrections",
+            "Sheriff's Office",
+            "State Police",
+            "VCSO-SWAT",
+            "WeaponsTester"
+        }
+        
+        for _, team in ipairs(copTeams) do
             if teamName == team then
                 return true
             end
         end
     elseif category == "Prisoner" then
-        for _, team in ipairs(Environment.TeamConfig.Prisoner.Teams) do
+        local prisonerTeams = {
+            "Booking",
+            "Escapee",
+            "Maxium Security",
+            "Medium Secruity",
+            "Minimum Secruity",
+            "Civilan"
+        }
+        
+        for _, team in ipairs(prisonerTeams) do
             if teamName == team then
                 return true
             end
