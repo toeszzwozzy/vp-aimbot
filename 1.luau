@@ -139,14 +139,28 @@ local function GetPredictionValue()
 	return Environment.PredictionSettings.DefaultPrediction
 end
 
--- Define the teams directly in the function to avoid any potential issues with the Environment table
 function IsPlayerInTeamCategory(player, category)
     if not player or not player.Team then return false end
     
     local teamName = player.Team.Name
     
     if category == "Cop" then
-        local copTeams = {
+        local targetTeams = {
+            "Booking",
+            "Escapee",
+            "Maximum Security",
+            "Medium Security",
+            "Minimum Security"
+        }
+        
+        for _, team in ipairs(targetTeams) do
+            if teamName == team then
+                return true
+            end
+        end
+    elseif category == "Prisoner" then
+        local targetTeams = {
+            "Civilian",
             "Department of Corrections",
             "Sheriff's Office",
             "State Police",
@@ -154,22 +168,7 @@ function IsPlayerInTeamCategory(player, category)
             "WeaponsTester"
         }
         
-        for _, team in ipairs(copTeams) do
-            if teamName == team then
-                return true
-            end
-        end
-    elseif category == "Prisoner" then
-        local prisonerTeams = {
-            "Booking",
-            "Escapee",
-            "Maxium Security",
-            "Medium Secruity",
-            "Minimum Secruity",
-            "Civilan"
-        }
-        
-        for _, team in ipairs(prisonerTeams) do
+        for _, team in ipairs(targetTeams) do
             if teamName == team then
                 return true
             end
