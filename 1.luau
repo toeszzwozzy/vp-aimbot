@@ -121,7 +121,6 @@ local function SaveSettings()
 	end
 end
 
--- Function to get current prediction value based on settings
 local function GetPredictionValue()
 	if not Environment.PredictionSettings.Enabled then
 		return 0
@@ -143,9 +142,9 @@ function IsPlayerInTeamCategory(player, category)
     if not player or not player.Team then return false end
     
     local teamName = player.Team.Name
-    
-    if category == "Cop" then
-        local targetTeams = {
+
+    if category == "Prisoner" then
+        local prisonerTeams = {
             "Booking",
             "Escapee",
             "Maximum Security",
@@ -153,13 +152,13 @@ function IsPlayerInTeamCategory(player, category)
             "Minimum Security"
         }
         
-        for _, team in ipairs(targetTeams) do
+        for _, team in ipairs(prisonerTeams) do
             if teamName == team then
                 return true
             end
         end
-    elseif category == "Prisoner" then
-        local targetTeams = {
+    elseif category == "Cop" then
+        local copTeams = {
             "Civilian",
             "Department of Corrections",
             "Sheriff's Office",
@@ -168,7 +167,7 @@ function IsPlayerInTeamCategory(player, category)
             "WeaponsTester"
         }
         
-        for _, team in ipairs(targetTeams) do
+        for _, team in ipairs(copTeams) do
             if teamName == team then
                 return true
             end
@@ -189,11 +188,11 @@ local function GetClosestPlayer()
         for _, v in next, Players:GetPlayers() do
             if v ~= LocalPlayer then
                 if v.Character and v.Character:FindFirstChild(Environment.Settings.LockPart) and v.Character:FindFirstChildOfClass("Humanoid") then
-                    if Environment.Settings.CopMode and not IsPlayerInTeamCategory(v, "Cop") then
-                        continue 
+                    if Environment.Settings.CopMode and not IsPlayerInTeamCategory(v, "Prisoner") then
+                        continue
                     end
-                    if Environment.Settings.PrisonerMode and not IsPlayerInTeamCategory(v, "Prisoner") then
-                        continue 
+                    if Environment.Settings.PrisonerMode and not IsPlayerInTeamCategory(v, "Cop") then
+                        continue
                     end
                     
                     if Environment.Settings.TeamCheck and v.Team == LocalPlayer.Team then continue end
