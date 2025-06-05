@@ -189,12 +189,11 @@ local function GetClosestPlayer()
         for _, v in next, Players:GetPlayers() do
             if v ~= LocalPlayer then
                 if v.Character and v.Character:FindFirstChild(Environment.Settings.LockPart) and v.Character:FindFirstChildOfClass("Humanoid") then
-                    -- Check team modes
-                    if Environment.Settings.CopMode and not IsPlayerInTeamCategory(v, "Prisoner") then
-                        continue
+                    if Environment.Settings.CopMode and not IsPlayerInTeamCategory(v, "Cop") then
+                        continue 
                     end
-                    if Environment.Settings.PrisonerMode and not IsPlayerInTeamCategory(v, "Cop") then
-                        continue
+                    if Environment.Settings.PrisonerMode and not IsPlayerInTeamCategory(v, "Prisoner") then
+                        continue 
                     end
                     
                     if Environment.Settings.TeamCheck and v.Team == LocalPlayer.Team then continue end
