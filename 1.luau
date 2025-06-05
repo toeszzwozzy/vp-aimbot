@@ -27,29 +27,6 @@ if isfolder(Title) then
     delfolder(Title)
 end
 
---// Team Configuration
-Environment.TeamConfig = {
-    Cop = {
-        Teams = {
-            "Booking",
-            "Escapee",
-            "Maxium Security",
-            "Medium Secruity",
-            "Minimum Secruity"
-        }
-    },
-    Prisoner = {
-        Teams = {
-            "Civilan",
-            "Department of Corrections",
-            "Sheriff's Office",
-            "State Police",
-            "VCSO-SWAT",
-            "WeaponsTester"
-        }
-    }
-}
-
 --// Support Functions
 local mousemoverel = mousemoverel or (Input and Input.MouseMove)
 local queueonteleport = queue_on_teleport or syn.queue_on_teleport
@@ -160,8 +137,7 @@ local function GetPredictionValue()
 	return Environment.PredictionSettings.DefaultPrediction
 end
 
--- Function to check if a player is in a specific team category
-local function IsPlayerInTeamCategory(player, category)
+function IsPlayerInTeamCategory(player, category)
     if not player or not player.Team then return false end
     
     local teamName = player.Team.Name
@@ -189,9 +165,18 @@ local function GetClosestPlayer()
         else
             RequiredDistance = 2000
         end
+        
         for _, v in next, Players:GetPlayers() do
             if v ~= LocalPlayer then
                 if v.Character and v.Character:FindFirstChild(Environment.Settings.LockPart) and v.Character:FindFirstChildOfClass("Humanoid") then
+                    -- Check team modes
+                    if Environment.Settings.CopMode and not IsPlayerInTeamCategory(v, "Prisoner") then
+                        continue
+                    end
+                    if Environment.Settings.PrisonerMode and not IsPlayerInTeamCategory(v, "Cop") then
+                        continue
+                    end
+                    
                     if Environment.Settings.TeamCheck and v.Team == LocalPlayer.Team then continue end
                     if Environment.Settings.AliveCheck and v.Character:FindFirstChildOfClass("Humanoid").Health <= 0 then continue end
                     if Environment.Settings.WallCheck and #(Camera:GetPartsObscuringTarget({v.Character[Environment.Settings.LockPart].Position}, v.Character:GetDescendants())) > 0 then continue end
@@ -208,7 +193,7 @@ local function GetClosestPlayer()
         end
     elseif (Vector2.new(UserInputService:GetMouseLocation().X, UserInputService:GetMouseLocation().Y) - Vector2.new(Camera:WorldToViewportPoint(Environment.Locked.Character[Environment.Settings.LockPart].Position).X, Camera:WorldToViewportPoint(Environment.Locked.Character[Environment.Settings.LockPart].Position).Y)).Magnitude > RequiredDistance then
         Environment.Locked = nil
-        if Animation then  -- Add this nil check
+        if Animation then
             Animation:Cancel()
         end
         Environment.FOVCircle.Color = GetColor(Environment.FOVSettings.Color)
@@ -330,7 +315,7 @@ local function Load()
 	                end
 	            end
 	        end)
-	    end
+	    end  -- This end was missing
 	end)
 
 	ServiceConnections.InputEndedConnection = UserInputService.InputEnded:Connect(function(Input)
@@ -350,7 +335,7 @@ local function Load()
 			pcall(function()
 				if Input.UserInputType == Enum.UserInputType[Environment.Settings.TriggerKey] then
 					if not Environment.Settings.Toggle then
-											    Running = false
+					    Running = false
 					    Environment.Locked = nil
 					    if Animation then  -- Add this nil check
 					        Animation:Cancel()
@@ -385,21 +370,45 @@ function Environment.Functions:Restart()
 end
 
 function Environment.Functions:ResetSettings()
-	Environment.Settings = {
-		SendNotifications = true,
-		SaveSettings = true, -- Re-execute upon changing
-		ReloadOnTeleport = true,
-		Enabled = true,
-		TeamCheck = false,
-		AliveCheck = true,
-		WallCheck = false,
-		Sensitivity = 0, -- Animation length (in seconds) before fully locking onto target
-		ThirdPerson = false,
-		ThirdPersonSensitivity = 3,
-		TriggerKey = "MouseButton2",
-		Toggle = false,
-		LockPart = "Head" -- Body part to lock on
-	}
+    Environment.Settings = {
+        SendNotifications = true,
+        SaveSettings = true, -- Re-execute upon changing
+        ReloadOnTeleport = true,
+        Enabled = true,
+        TeamCheck = false,
+        AliveCheck = true,
+        WallCheck = false,
+        Sensitivity = 0, -- Animation length (in seconds) before fully locking onto target
+        ThirdPerson = false,
+        ThirdPersonSensitivity = 3,
+        TriggerKey = "MouseButton2",
+        Toggle = false,
+        LockPart = "Head", -- Body part to lock on
+        CopMode = false,  -- Only target prisoners when enabled
+        PrisonerMode = false  -- Only target cops when enabled
+    }
+
+	Environment.TeamConfig = {
+        Cop = {
+            Teams = {
+                "Department of Corrections",
+                "Sheriff's Office",
+                "State Police",
+                "VCSO-SWAT",
+                "WeaponsTester"
+            }
+        },
+        Prisoner = {
+            Teams = {
+                "Booking",
+                "Escapee",
+                "Maxium Security",
+                "Medium Secruity",
+                "Minimum Secruity",
+                "Civilan"
+            }
+        }
+    }
 	
 	Environment.FOVSettings = {
 		Enabled = true,
@@ -409,7 +418,7 @@ function Environment.Functions:ResetSettings()
 		LockedColor = "255, 70, 70",
 		Transparency = 0.5,
 		Sides = 60,
-        Thickness = 1,
+                Thickness = 1,
 		Filled = false
 	}
 	
@@ -420,50 +429,6 @@ function Environment.Functions:ResetSettings()
 		PingBasedMultiplier = 0.001, -- Multiplier for ping-based prediction
 		CustomPrediction = 0.2
 	}
-	
-	Environment.TeamConfig = {
-        Cop = {
-            Teams = {
-                "Booking",
-                "Escapee",
-                "Maxium Security",
-                "Medium Secruity",
-                "Minimum Secruity"
-            }
-        },
-        Prisoner = {
-            Teams = {
-                "Civilan",
-                "Department of Corrections",
-                "Sheriff's Office",
-                "State Police",
-                "VCSO-SWAT",
-                "WeaponsTester"
-            }
-        }
-    }
-end
-
--- Function to check if a player is in a specific team category
-function Environment.Functions:IsPlayerInTeamCategory(player, category)
-    if not player or not player.Team then return false end
-    
-    local teamName = player.Team.Name
-    if category == "Cop" then
-        for _, team in ipairs(Environment.TeamConfig.Cop.Teams) do
-            if teamName == team then
-                return true
-            end
-        end
-    elseif category == "Prisoner" then
-        for _, team in ipairs(Environment.TeamConfig.Prisoner.Teams) do
-            if teamName == team then
-                return true
-            end
-        end
-    end
-    
-    return false
 end
 
 --// Support Check
