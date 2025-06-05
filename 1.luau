@@ -72,26 +72,26 @@ Environment.PredictionSettings = {
 }
 
 Environment.TeamConfig = {
-        Cop = {
-            Teams = {
-                "Department of Corrections",
-                "Sheriff's Office",
-                "State Police",
-                "VCSO-SWAT",
-                "WeaponsTester"
-            }
-        },
-        Prisoner = {
-            Teams = {
-                "Booking",
-                "Escapee",
-                "Maxium Security",
-                "Medium Secruity",
-                "Minimum Secruity",
-                "Civilan"
-            }
+    Cop = {
+        Teams = {
+            "Department of Corrections",
+            "Sheriff's Office",
+            "State Police",
+            "VCSO-SWAT",
+            "WeaponsTester"
+        }
+    },
+    Prisoner = {
+        Teams = {
+            "Booking",
+            "Escapee",
+            "Maxium Security",
+            "Medium Secruity",
+            "Minimum Secruity",
+            "Civilan"
         }
     }
+}
 
 Environment.FOVCircle = Drawing.new("Circle")
 Environment.Locked = nil
