@@ -71,6 +71,13 @@ Environment.PredictionSettings = {
 	CustomPrediction = 0.2
 }
 
+-- TriggerBot settings
+Environment.TriggerBot = {
+    Enabled = false,
+    Debounce = false,
+    Connection = nil
+}
+
 Environment.FOVCircle = Drawing.new("Circle")
 Environment.Locked = nil
 
@@ -142,7 +149,6 @@ function IsPlayerInTeamCategory(player, category)
     if not player or not player.Team then return false end
     
     local teamName = player.Team.Name
-
     if category == "Prisoner" then
         local prisonerTeams = {
             "Booking",
@@ -218,6 +224,78 @@ local function GetClosestPlayer()
     end
 end
 
+-- TriggerBot implementation
+local function SetupTriggerBot()
+    if Environment.TriggerBot.Connection then
+        Environment.TriggerBot.Connection:Disconnect()
+        Environment.TriggerBot.Connection = nil
+    end
+    
+    Environment.TriggerBot.Connection = RunService.RenderStepped:Connect(function()
+        if not Environment.TriggerBot.Enabled then return end
+        if Environment.TriggerBot.Debounce then return end
+        
+        local Mouse = LocalPlayer:GetMouse()
+        local Target = Mouse.Target
+        
+        if not Target or not Target.Parent then return end
+        
+        local Player = Players:GetPlayerFromCharacter(Target.Parent)
+        if not Player then return end
+        
+        -- Apply the same filters as the aimbot
+        if Environment.Settings.TeamCheck and Player.Team == LocalPlayer.Team then return end
+        
+        if Environment.Settings.CopMode and not IsPlayerInTeamCategory(Player, "Prisoner") then
+            return
+        end
+        
+        if Environment.Settings.PrisonerMode and not IsPlayerInTeamCategory(Player, "Cop") then
+            return
+        end
+        
+        local Character = Player.Character
+        if not Character then return end
+        
+        local Humanoid = Character:FindFirstChildOfClass("Humanoid")
+        if Environment.Settings.AliveCheck and (not Humanoid or Humanoid.Health <= 0) then return end
+        
+        if Character:FindFirstChildOfClass("ForceField") then return end
+        
+        if Environment.Settings.WallCheck then
+            local RaycastParams = RaycastParams.new()
+            RaycastParams.FilterDescendantsInstances = {LocalPlayer.Character, Camera}
+            RaycastParams.FilterType = Enum.RaycastFilterType.Blacklist
+            
+            local Result = workspace:Raycast(Camera.CFrame.Position, (Target.Position - Camera.CFrame.Position).Unit * 1000, RaycastParams)
+            if Result and Result.Instance and not Result.Instance:IsDescendantOf(Character) then
+                return
+            end
+        end
+        
+        -- All checks passed, fire the trigger
+        Environment.TriggerBot.Debounce = true
+        
+        task.spawn(function()
+            mouse1press()
+            
+            -- Wait until no longer targeting the player or until disabled
+            repeat
+                RunService.RenderStepped:Wait()
+                local CurrentTarget = Mouse.Target
+                local CurrentPlayer = CurrentTarget and CurrentTarget.Parent and Players:GetPlayerFromCharacter(CurrentTarget.Parent)
+                
+                if not CurrentTarget or not CurrentPlayer or CurrentPlayer ~= Player then
+                    break
+                end
+            until not Environment.TriggerBot.Enabled
+            
+            mouse1release()
+            Environment.TriggerBot.Debounce = false
+        end)
+    end)
+end
+
 --// Typing Check
 ServiceConnections.TypingStartedConnection = UserInputService.TextBoxFocused:Connect(function()
 	Typing = true
@@ -282,7 +360,7 @@ local function Load()
 				local predictionValue = GetPredictionValue()
 				local predictedPosition = targetPart.Position + (targetPart.Velocity * predictionValue)
 				
-				if Environment.Settings.ThirdPerson then
+								if Environment.Settings.ThirdPerson then
 					Environment.Settings.ThirdPersonSensitivity = math.clamp(Environment.Settings.ThirdPersonSensitivity, 0.1, 5)
 					local Vector = Camera:WorldToViewportPoint(predictedPosition)
 					mousemoverel((Vector.X - UserInputService:GetMouseLocation().X) * Environment.Settings.ThirdPersonSensitivity, (Vector.Y - UserInputService:GetMouseLocation().Y) * Environment.Settings.ThirdPersonSensitivity)
@@ -307,7 +385,7 @@ local function Load()
 	                    Running = not Running
 	                    if not Running then
 	                        Environment.Locked = nil
-	                        if Animation then  -- Add this nil check
+	                        if Animation then
 	                            Animation:Cancel()
 	                        end
 	                        Environment.FOVCircle.Color = GetColor(Environment.FOVSettings.Color)
@@ -323,7 +401,7 @@ local function Load()
 	                    Running = not Running
 	                    if not Running then
 	                        Environment.Locked = nil
-	                        if Animation then  -- Add this nil check
+	                        if Animation then
 	                            Animation:Cancel()
 	                        end
 	                        Environment.FOVCircle.Color = GetColor(Environment.FOVSettings.Color)
@@ -333,7 +411,7 @@ local function Load()
 	                end
 	            end
 	        end)
-	    end  -- This end was missing
+	    end
 	end)
 
 	ServiceConnections.InputEndedConnection = UserInputService.InputEnded:Connect(function(Input)
@@ -343,7 +421,7 @@ local function Load()
 					if not Environment.Settings.Toggle then
 					    Running = false
 					    Environment.Locked = nil
-					    if Animation then  -- Add this nil check
+					    if Animation then
 					        Animation:Cancel()
 					    end
 					    Environment.FOVCircle.Color = GetColor(Environment.FOVSettings.Color)
@@ -355,7 +433,7 @@ local function Load()
 					if not Environment.Settings.Toggle then
 					    Running = false
 					    Environment.Locked = nil
-					    if Animation then  -- Add this nil check
+					    if Animation then
 					        Animation:Cancel()
 					    end
 					    Environment.FOVCircle.Color = GetColor(Environment.FOVSettings.Color)
@@ -364,6 +442,9 @@ local function Load()
 			end)
 		end
 	end)
+	
+	-- Initialize TriggerBot
+	SetupTriggerBot()
 end
 
 --// Functions
@@ -374,6 +455,12 @@ function Environment.Functions:Exit()
 	for _, v in next, ServiceConnections do
 		v:Disconnect()
 	end
+	
+	if Environment.TriggerBot.Connection then
+	    Environment.TriggerBot.Connection:Disconnect()
+	    Environment.TriggerBot.Connection = nil
+	end
+	
 	if Environment.FOVCircle.Remove then Environment.FOVCircle:Remove() end
 	getgenv().Aimbot.Functions = nil
 	getgenv().Aimbot = nil
@@ -384,6 +471,12 @@ function Environment.Functions:Restart()
 	for _, v in next, ServiceConnections do
 		v:Disconnect()
 	end
+	
+	if Environment.TriggerBot.Connection then
+	    Environment.TriggerBot.Connection:Disconnect()
+	    Environment.TriggerBot.Connection = nil
+	end
+	
 	Load()
 end
 
@@ -414,7 +507,7 @@ function Environment.Functions:ResetSettings()
 		LockedColor = "255, 70, 70",
 		Transparency = 0.5,
 		Sides = 60,
-                Thickness = 1,
+        Thickness = 1,
 		Filled = false
 	}
 	
@@ -425,6 +518,18 @@ function Environment.Functions:ResetSettings()
 		PingBasedMultiplier = 0.001, -- Multiplier for ping-based prediction
 		CustomPrediction = 0.2
 	}
+	
+	Environment.TriggerBot = {
+	    Enabled = false,
+	    Debounce = false,
+	    Connection = nil
+	}
+end
+
+-- TriggerBot specific functions
+function Environment.Functions:ToggleTriggerBot(state)
+    Environment.TriggerBot.Enabled = state or not Environment.TriggerBot.Enabled
+    return Environment.TriggerBot.Enabled
 end
 
 --// Support Check
