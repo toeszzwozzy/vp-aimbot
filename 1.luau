@@ -64,8 +64,8 @@ Environment.FOVSettings = {
 
 -- New prediction settings
 Environment.PredictionSettings = {
-	Enabled = false,
-	PredictionMode = "Default", -- "Default", "Ping", "Custom"
+	Enabled = true,
+	PredictionMode = "ping", -- "Default", "Ping", "Custom"
 	DefaultPrediction = 0.165,
 	PingBasedMultiplier = 0.001, -- Multiplier for ping-based prediction
 	CustomPrediction = 0.2
