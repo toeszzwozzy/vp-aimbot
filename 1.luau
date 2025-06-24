@@ -455,7 +455,11 @@ local function Load()
                     end
                 end
                 
+                -- Set FOV color to locked color
                 Environment.FOVCircle.Color = GetColor(Environment.FOVSettings.LockedColor)
+            else
+                -- Reset FOV color when not locked
+                Environment.FOVCircle.Color = GetColor(Environment.FOVSettings.Color)
             end
         end
     end)
