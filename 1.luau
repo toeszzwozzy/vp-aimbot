@@ -40,7 +40,6 @@ Environment.Settings = {
 	TeamCheck = false,
 	AliveCheck = true,
 	WallCheck = false, -- Optimized in this version
-	WallCheckAccuracy = 3, -- Lower = better performance, higher = more accurate (1-5)
 	Sensitivity = 0, -- Animation length (in seconds) before fully locking onto target
 	ThirdPerson = false, -- Uses mousemoverel instead of CFrame to support locking in third person
 	ThirdPersonSensitivity = 3, -- Boundary: 0.1 - 5
@@ -69,9 +68,7 @@ Environment.PredictionSettings = {
 	PredictionMode = "ping", -- "Default", "Ping", "Custom"
 	DefaultPrediction = 0.165,
 	PingBasedMultiplier = 0.00075, -- Adjusted for better accuracy
-	PingBasedCap = 0.3, -- Maximum prediction value for ping-based prediction
-	CustomPrediction = 0.2,
-	VelocityCompensation = true -- Compensates for target velocity changes
+	CustomPrediction = 0.2
 }
 
 -- TriggerBot settings
@@ -132,7 +129,7 @@ local function SaveSettings()
 end
 
 -- Optimized prediction calculation
-local function GetPredictionValue(target)
+local function GetPredictionValue()
 	if not Environment.PredictionSettings.Enabled then
 		return 0
 	end
@@ -146,22 +143,13 @@ local function GetPredictionValue(target)
 		if tick() - Environment.LastPing > 0.5 then
 			Environment.LastPing = tick()
 			local ping = Stats.Network.ServerStatsItem["Data Ping"]:GetValue() / 1000
-			prediction = math.min(ping * Environment.PredictionSettings.PingBasedMultiplier, Environment.PredictionSettings.PingBasedCap)
+			prediction = ping * Environment.PredictionSettings.PingBasedMultiplier
 			Environment.LastPrediction = prediction
 		else
 			prediction = Environment.LastPrediction
 		end
 	elseif Environment.PredictionSettings.PredictionMode == "Custom" then
 		prediction = Environment.PredictionSettings.CustomPrediction
-	end
-	
-	-- Apply velocity compensation if enabled
-	if Environment.PredictionSettings.VelocityCompensation and target and target.Character then
-		local humanoid = target.Character:FindFirstChildOfClass("Humanoid")
-		if humanoid and humanoid.MoveDirection.Magnitude > 0 then
-			local velocityFactor = humanoid.MoveDirection.Magnitude / humanoid.WalkSpeed
-			prediction = prediction * (1 + (velocityFactor * 0.1))
-		end
 	end
 	
 	return prediction
@@ -180,32 +168,9 @@ local function IsTargetVisible(target, targetPart)
     local cameraPosition = Camera.CFrame.Position
     local direction = (targetPosition - cameraPosition).Unit
     
-    -- Adjust accuracy based on settings
-    local checkCount = Environment.Settings.WallCheckAccuracy
-    if checkCount <= 1 then
-        -- Single raycast for best performance
-        local result = workspace:Raycast(cameraPosition, direction * 1000, rayParams)
-        return result and result.Instance:IsDescendantOf(target.Character)
-    else
-        -- Multiple raycasts for better accuracy but more performance impact
-        local offset = targetPart.Size.Magnitude / 4
-        local checkPoints = {
-            targetPosition,
-            targetPosition + Vector3.new(offset, 0, 0),
-            targetPosition + Vector3.new(-offset, 0, 0),
-            targetPosition + Vector3.new(0, offset, 0),
-            targetPosition + Vector3.new(0, -offset, 0)
-        }
-        
-        for i = 1, math.min(checkCount, #checkPoints) do
-            local checkDir = (checkPoints[i] - cameraPosition).Unit
-            local result = workspace:Raycast(cameraPosition, checkDir * 1000, rayParams)
-            if result and result.Instance:IsDescendantOf(target.Character) then
-                return true
-            end
-        end
-        return false
-    end
+    -- Single raycast for best performance
+    local result = workspace:Raycast(cameraPosition, direction * 1000, rayParams)
+    return result and result.Instance:IsDescendantOf(target.Character)
 end
 
 function IsPlayerInTeamCategory(player, category)
@@ -387,7 +352,7 @@ local function SetupTriggerBot()
                 local CurrentTarget = Mouse.Target
                 local CurrentPlayer = CurrentTarget and CurrentTarget.Parent and Players:GetPlayerFromCharacter(CurrentTarget.Parent)
                 
-                                if not CurrentTarget or not CurrentPlayer or CurrentPlayer ~= Player then
+                if not CurrentTarget or not CurrentPlayer or CurrentPlayer ~= Player then
                     break
                 end
             until not Environment.TriggerBot.Enabled
@@ -431,7 +396,7 @@ if Environment.Settings.SaveSettings then
         Environment.PredictionSettings = Decode(readfile(Title.."/"..FileNames[1].."/"..FileNames[4]))
     end
     
-    -- Auto-save settings periodically
+        -- Auto-save settings periodically
     task.spawn(function()
         while task.wait(10) do
             if not Environment.Settings or not Environment.Settings.SaveSettings then break end
@@ -444,28 +409,9 @@ else
     end
 end
 
--- Performance optimization for the main loop
-local lastFrame = tick()
-local frameDelay = 0
-local targetFPS = 144 -- Target FPS for performance management
-
 local function Load()
-    ServiceConnections.RenderSteppedConnection = RunService.RenderStepped:Connect(function()
-        -- Performance management
-        local currentTime = tick()
-        local deltaTime = currentTime - lastFrame
-        lastFrame = currentTime
-        
-        -- Skip frames if FPS drops too low
-        if Environment.Settings.WallCheck then
-            frameDelay = frameDelay + 1
-            if frameDelay < 2 then -- Only process every other frame when wall check is enabled
-                return
-            end
-            frameDelay = 0
-        end
-        
-        -- FOV Circle handling
+    -- Update FOV circle in a separate connection for better performance
+    ServiceConnections.FOVUpdateConnection = RunService.RenderStepped:Connect(function()
         if Environment.FOVSettings.Enabled and Environment.Settings.Enabled then
             Environment.FOVCircle.Radius = Environment.FOVSettings.Amount
             Environment.FOVCircle.Thickness = Environment.FOVSettings.Thickness
@@ -478,13 +424,15 @@ local function Load()
         else
             Environment.FOVCircle.Visible = false
         end
-        
-        -- Aimbot logic
+    end)
+
+    -- Main aimbot logic
+    ServiceConnections.RenderSteppedConnection = RunService.RenderStepped:Connect(function()
         if Running and Environment.Settings.Enabled then
             GetClosestPlayer()
             if Environment.Locked and Environment.Locked.Character and Environment.Locked.Character:FindFirstChild(Environment.Settings.LockPart) then
                 local targetPart = Environment.Locked.Character[Environment.Settings.LockPart]
-                local predictionValue = GetPredictionValue(Environment.Locked)
+                local predictionValue = GetPredictionValue()
                 local predictedPosition = targetPart.Position + (targetPart.Velocity * predictionValue)
                 
                 if Environment.Settings.ThirdPerson then
@@ -496,6 +444,10 @@ local function Load()
                     )
                 else
                     if Environment.Settings.Sensitivity > 0 then
+                        -- Cancel previous animation if it exists
+                        if Animation then
+                            Animation:Cancel()
+                        end
                         Animation = TweenService:Create(Camera, TweenInfo.new(Environment.Settings.Sensitivity, Enum.EasingStyle.Sine, Enum.EasingDirection.Out), {CFrame = CFrame.new(Camera.CFrame.Position, predictedPosition)})
                         Animation:Play()
                     else
@@ -621,7 +573,6 @@ function Environment.Functions:ResetSettings()
         TeamCheck = false,
         AliveCheck = true,
         WallCheck = false,
-        WallCheckAccuracy = 1,
         Sensitivity = 0,
         ThirdPerson = false,
         ThirdPersonSensitivity = 3,
@@ -649,9 +600,7 @@ function Environment.Functions:ResetSettings()
         PredictionMode = "Ping",
         DefaultPrediction = 0.165,
         PingBasedMultiplier = 0.00075,
-        PingBasedCap = 0.3,
-        CustomPrediction = 0.2,
-        VelocityCompensation = true
+        CustomPrediction = 0.2
     }
     
     Environment.TriggerBot = {
@@ -665,24 +614,6 @@ end
 function Environment.Functions:ToggleTriggerBot(state)
     Environment.TriggerBot.Enabled = state or not Environment.TriggerBot.Enabled
     return Environment.TriggerBot.Enabled
-end
-
--- Performance functions
-function Environment.Functions:SetPerformanceMode(mode)
-    -- mode: "low", "medium", "high"
-    if mode == "low" then
-        Environment.Settings.WallCheckAccuracy = 1
-        frameDelay = 3
-        Environment.FOVSettings.Sides = 30
-    elseif mode == "medium" then
-        Environment.Settings.WallCheckAccuracy = 2
-        frameDelay = 2
-        Environment.FOVSettings.Sides = 45
-    elseif mode == "high" then
-        Environment.Settings.WallCheckAccuracy = 3
-        frameDelay = 1
-        Environment.FOVSettings.Sides = 60
-    end
 end
 
 --// Support Check
