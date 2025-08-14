@@ -1,13 +1,13 @@
---// Preventing Multiple Processes
+-- Process Prevention
 pcall(function()
 	getgenv().Aimbot.Functions:Exit()
 end)
 
---// Environment
+-- Environment Setup
 getgenv().Aimbot = {}
 local Environment = getgenv().Aimbot
 
---// Services
+-- Services
 local RunService = game:GetService("RunService")
 local UserInputService = game:GetService("UserInputService")
 local HttpService = game:GetService("HttpService")
@@ -17,7 +17,7 @@ local Players = game:GetService("Players")
 local Camera = workspace.CurrentCamera
 local Stats = game:GetService("Stats")
 
---// Variables
+-- Variables
 local LocalPlayer = Players.LocalPlayer
 local Title = "Exunys Developer"
 local FileNames = {"Aimbot", "Configuration.json", "Drawing.json", "Prediction.json"}
@@ -27,27 +27,27 @@ if isfolder(Title) then
     delfolder(Title)
 end
 
---// Support Functions
+-- Support Functions
 local mousemoverel = mousemoverel or (Input and Input.MouseMove)
 local queueonteleport = queue_on_teleport or syn.queue_on_teleport
 
---// Script Settings
+-- Settings
 Environment.Settings = {
 	SendNotifications = false,
-	SaveSettings = true, -- Re-execute upon changing
+	SaveSettings = true,
 	ReloadOnTeleport = false,
 	Enabled = false,
 	TeamCheck = false,
 	AliveCheck = true,
-	WallCheck = false, -- Optimized in this version
-	Sensitivity = 0, -- Animation length (in seconds) before fully locking onto target
-	ThirdPerson = false, -- Uses mousemoverel instead of CFrame to support locking in third person
-	ThirdPersonSensitivity = 3, -- Boundary: 0.1 - 5
+	WallCheck = false,
+	Sensitivity = 0,
+	ThirdPerson = false,
+	ThirdPersonSensitivity = 3,
 	TriggerKey = "MouseButton2",
 	Toggle = false,
 	CopMode = false,
 	PrisonerMode = false,
-	LockPart = "Head" -- Body part to lock on
+	LockPart = "Head"
 }
 
 Environment.FOVSettings = {
@@ -62,16 +62,15 @@ Environment.FOVSettings = {
 	Filled = false
 }
 
--- Improved prediction settings
 Environment.PredictionSettings = {
 	Enabled = true,
-	PredictionMode = "ping", -- "Default", "Ping", "Custom"
+	PredictionMode = "ping",
 	DefaultPrediction = 0.165,
-	PingBasedMultiplier = 0.00075, -- Adjusted for better accuracy
+	PingBasedMultiplier = 0.00075,
 	CustomPrediction = 0.2
 }
 
--- TriggerBot settings
+-- TriggerBot Settings
 Environment.TriggerBot = {
     Enabled = false,
     Debounce = false,
@@ -82,8 +81,9 @@ Environment.FOVCircle = Drawing.new("Circle")
 Environment.Locked = nil
 Environment.LastPing = 0
 Environment.LastPrediction = 0
+Environment.NextScanAt = 0
 
---// Core Functions
+-- Core Functions
 local function Encode(Table)
 	if Table and type(Table) == "table" then
 		return HttpService:JSONEncode(Table)
@@ -113,7 +113,7 @@ local function SendNotification(TitleArg, DescriptionArg, DurationArg)
 	end
 end
 
---// Functions
+-- Settings Management
 local function SaveSettings()
 	if Environment.Settings.SaveSettings then
 		if isfile(Title.."/"..FileNames[1].."/"..FileNames[2]) then
@@ -128,7 +128,7 @@ local function SaveSettings()
 	end
 end
 
--- Optimized prediction calculation
+-- Prediction System
 local function GetPredictionValue()
 	if not Environment.PredictionSettings.Enabled then
 		return 0
@@ -139,7 +139,6 @@ local function GetPredictionValue()
 	if Environment.PredictionSettings.PredictionMode == "Default" then
 		prediction = Environment.PredictionSettings.DefaultPrediction
 	elseif Environment.PredictionSettings.PredictionMode == "Ping" then
-		-- Only update ping every few frames to reduce performance impact
 		if tick() - Environment.LastPing > 0.5 then
 			Environment.LastPing = tick()
 			local ping = Stats.Network.ServerStatsItem["Data Ping"]:GetValue() / 1000
@@ -155,11 +154,10 @@ local function GetPredictionValue()
 	return prediction
 end
 
--- Optimized wall check function
+-- Wall Check
 local function IsTargetVisible(target, targetPart)
     if not Environment.Settings.WallCheck then return true end
     
-    -- Use a raycast for better performance
     local rayParams = RaycastParams.new()
     rayParams.FilterType = Enum.RaycastFilterType.Blacklist
     rayParams.FilterDescendantsInstances = {LocalPlayer.Character, Camera}
@@ -168,9 +166,11 @@ local function IsTargetVisible(target, targetPart)
     local cameraPosition = Camera.CFrame.Position
     local direction = (targetPosition - cameraPosition).Unit
     
-    -- Single raycast for best performance
     local result = workspace:Raycast(cameraPosition, direction * 1000, rayParams)
-    return result and result.Instance:IsDescendantOf(target.Character)
+    if not result then
+        return true
+    end
+    return result.Instance:IsDescendantOf(target.Character)
 end
 
 function IsPlayerInTeamCategory(player, category)
@@ -211,7 +211,7 @@ function IsPlayerInTeamCategory(player, category)
     return false
 end
 
--- Optimized GetClosestPlayer function
+-- Target Selection
 local function GetClosestPlayer()
     if not Environment.Locked then
         if Environment.FOVSettings.Enabled then
@@ -231,7 +231,7 @@ local function GetClosestPlayer()
                     local humanoid = character:FindFirstChildOfClass("Humanoid")
                     
                     if targetPart and humanoid then
-                        -- Team and mode checks
+                        
                         if Environment.Settings.CopMode and not IsPlayerInTeamCategory(player, "Prisoner") then
                             continue
                         end
@@ -245,16 +245,14 @@ local function GetClosestPlayer()
                             continue 
                         end
                         
-                        -- Check if target is on screen
+                        
                         local vector, onScreen = Camera:WorldToViewportPoint(targetPart.Position)
                         if not onScreen then continue end
                         
-                        -- Calculate distance from mouse
                         local distance = (Vector2.new(mousePos.X, mousePos.Y) - Vector2.new(vector.X, vector.Y)).Magnitude
                         
-                        -- Check if within FOV and closer than previous targets
                         if distance < RequiredDistance then
-                            -- Only perform wall check if needed (it's expensive)
+                            
                             if not Environment.Settings.WallCheck or IsTargetVisible(player, targetPart) then
                                 RequiredDistance = distance
                                 closestPlayer = player
@@ -270,7 +268,7 @@ local function GetClosestPlayer()
         local targetPart = Environment.Locked.Character:FindFirstChild(Environment.Settings.LockPart)
         if not targetPart then
             Environment.Locked = nil
-            if Animation then Animation:Cancel() end
+            Animation = nil
             Environment.FOVCircle.Color = GetColor(Environment.FOVSettings.Color)
             return
         end
@@ -278,7 +276,7 @@ local function GetClosestPlayer()
         local vector, onScreen = Camera:WorldToViewportPoint(targetPart.Position)
         if not onScreen then
             Environment.Locked = nil
-            if Animation then Animation:Cancel() end
+            Animation = nil
             Environment.FOVCircle.Color = GetColor(Environment.FOVSettings.Color)
             return
         end
@@ -288,23 +286,28 @@ local function GetClosestPlayer()
         
         if distance > RequiredDistance or (Environment.Settings.WallCheck and not IsTargetVisible(Environment.Locked, targetPart)) then
             Environment.Locked = nil
-            if Animation then Animation:Cancel() end
+            Animation = nil
             Environment.FOVCircle.Color = GetColor(Environment.FOVSettings.Color)
         end
     else
         Environment.Locked = nil
-        if Animation then Animation:Cancel() end
+        Animation = nil
         Environment.FOVCircle.Color = GetColor(Environment.FOVSettings.Color)
     end
 end
 
--- TriggerBot implementation
+-- TriggerBot Loop
 local function SetupTriggerBot()
     if Environment.TriggerBot.Connection then
         Environment.TriggerBot.Connection:Disconnect()
         Environment.TriggerBot.Connection = nil
     end
     
+    if Environment.TriggerBot.Connection then
+        Environment.TriggerBot.Connection:Disconnect()
+        Environment.TriggerBot.Connection = nil
+    end
+    if not Environment.TriggerBot.Enabled then return end
     Environment.TriggerBot.Connection = RunService.RenderStepped:Connect(function()
         if not Environment.TriggerBot.Enabled then return end
         if Environment.TriggerBot.Debounce then return end
@@ -317,7 +320,6 @@ local function SetupTriggerBot()
         local Player = Players:GetPlayerFromCharacter(Target.Parent)
         if not Player then return end
         
-        -- Apply the same filters as the aimbot
         if Environment.Settings.TeamCheck and Player.Team == LocalPlayer.Team then return end
         
         if Environment.Settings.CopMode and not IsPlayerInTeamCategory(Player, "Prisoner") then
@@ -340,13 +342,11 @@ local function SetupTriggerBot()
             return
         end
         
-        -- All checks passed, fire the trigger
         Environment.TriggerBot.Debounce = true
         
         task.spawn(function()
             mouse1press()
             
-            -- Wait until no longer targeting the player or until disabled
             repeat
                 RunService.RenderStepped:Wait()
                 local CurrentTarget = Mouse.Target
@@ -363,7 +363,7 @@ local function SetupTriggerBot()
     end)
 end
 
---// Typing Check
+-- Input Detection
 ServiceConnections.TypingStartedConnection = UserInputService.TextBoxFocused:Connect(function()
     Typing = true
 end)
@@ -372,7 +372,7 @@ ServiceConnections.TypingEndedConnection = UserInputService.TextBoxFocusReleased
     Typing = false
 end)
 
---// Create, Save & Load Settings
+-- File System
 if Environment.Settings.SaveSettings then
     if not isfolder(Title) then
         makefolder(Title)
@@ -396,7 +396,6 @@ if Environment.Settings.SaveSettings then
         Environment.PredictionSettings = Decode(readfile(Title.."/"..FileNames[1].."/"..FileNames[4]))
     end
     
-        -- Auto-save settings periodically
     task.spawn(function()
         while task.wait(10) do
             if not Environment.Settings or not Environment.Settings.SaveSettings then break end
@@ -411,7 +410,7 @@ end
 
 local function Load()
     ServiceConnections.RenderSteppedConnection = RunService.RenderStepped:Connect(function()
-        -- FOV circle update
+        
         if Environment.FOVSettings.Enabled and Environment.Settings.Enabled then
             Environment.FOVCircle.Radius = Environment.FOVSettings.Amount
             Environment.FOVCircle.Thickness = Environment.FOVSettings.Thickness
@@ -419,36 +418,50 @@ local function Load()
             Environment.FOVCircle.NumSides = Environment.FOVSettings.Sides
             Environment.FOVCircle.Transparency = Environment.FOVSettings.Transparency
             Environment.FOVCircle.Visible = Environment.FOVSettings.Visible
-            Environment.FOVCircle.Position = Vector2.new(UserInputService:GetMouseLocation().X, UserInputService:GetMouseLocation().Y)
+            local mousePos = UserInputService:GetMouseLocation()
+            Environment.FOVCircle.Position = Vector2.new(mousePos.X, mousePos.Y)
         else
             Environment.FOVCircle.Visible = false
         end
 
-        -- Aimbot logic
+        
         if Running and Environment.Settings.Enabled then
-            GetClosestPlayer()
+            local now = tick()
+            if now >= (Environment.NextScanAt or 0) then
+                GetClosestPlayer()
+                Environment.NextScanAt = now + 0.05 -- scan at most 20 times per second
+            end
             if Environment.Locked and Environment.Locked.Character and Environment.Locked.Character:FindFirstChild(Environment.Settings.LockPart) then
                 local targetPart = Environment.Locked.Character[Environment.Settings.LockPart]
                 local predictionValue = GetPredictionValue()
                 local predictedPosition = targetPart.Position + (targetPart.Velocity * predictionValue)
                 
                 if Environment.Settings.ThirdPerson then
-                    Environment.Settings.ThirdPersonSensitivity = math.clamp(Environment.Settings.ThirdPersonSensitivity, 0.1, 5)
+                    local sensitivity = math.clamp(Environment.Settings.ThirdPersonSensitivity, 0.1, 5)
                     local Vector = Camera:WorldToViewportPoint(predictedPosition)
-                    mousemoverel(
-                        (Vector.X - UserInputService:GetMouseLocation().X) * Environment.Settings.ThirdPersonSensitivity, 
-                        (Vector.Y - UserInputService:GetMouseLocation().Y) * Environment.Settings.ThirdPersonSensitivity
-                    )
+                    local mousePos = UserInputService:GetMouseLocation()
+                    
+                    local deltaX = (Vector.X - mousePos.X) * (sensitivity * 0.1)
+                    local deltaY = (Vector.Y - mousePos.Y) * (sensitivity * 0.1)
+                    
+                    deltaX = math.clamp(deltaX, -50, 50)
+                    deltaY = math.clamp(deltaY, -50, 50)
+                    
+                    mousemoverel(deltaX, deltaY)
                 else
+                    local current = Camera.CFrame
+                    local targetCFrame = CFrame.new(current.Position, predictedPosition)
+                    
                     if Environment.Settings.Sensitivity > 0 then
-                        -- Cancel previous animation if it exists
-                        if Animation then
-                            Animation:Cancel()
-                        end
-                        Animation = TweenService:Create(Camera, TweenInfo.new(Environment.Settings.Sensitivity, Enum.EasingStyle.Sine, Enum.EasingDirection.Out), {CFrame = CFrame.new(Camera.CFrame.Position, predictedPosition)})
-                        Animation:Play()
+                        
+                        local sensitivity = math.clamp(Environment.Settings.Sensitivity, 0.1, 10)
+                        local smoothSpeed = 1 / sensitivity
+                        
+                        local lerpFactor = math.clamp(smoothSpeed * 0.16, 0.01, 0.8)
+                        
+                        Camera.CFrame = current:Lerp(targetCFrame, lerpFactor)
                     else
-                        Camera.CFrame = CFrame.new(Camera.CFrame.Position, predictedPosition)
+                        Camera.CFrame = targetCFrame
                     end
                 end
             
@@ -470,9 +483,7 @@ local function Load()
                         Running = not Running
                         if not Running then
                             Environment.Locked = nil
-                            if Animation then
-                                Animation:Cancel()
-                            end
+                            Animation = nil
                             Environment.FOVCircle.Color = GetColor(Environment.FOVSettings.Color)
                         end
                     else
@@ -486,9 +497,7 @@ local function Load()
                         Running = not Running
                         if not Running then
                             Environment.Locked = nil
-                            if Animation then
-                                Animation:Cancel()
-                            end
+                            Animation = nil
                             Environment.FOVCircle.Color = GetColor(Environment.FOVSettings.Color)
                         end
                     else
@@ -506,9 +515,7 @@ local function Load()
                     if not Environment.Settings.Toggle then
                         Running = false
                         Environment.Locked = nil
-                        if Animation then
-                            Animation:Cancel()
-                        end
+                        Animation = nil
                         Environment.FOVCircle.Color = GetColor(Environment.FOVSettings.Color)
                     end
                 end
@@ -518,9 +525,7 @@ local function Load()
                     if not Environment.Settings.Toggle then
                         Running = false
                         Environment.Locked = nil
-                        if Animation then
-                            Animation:Cancel()
-                        end
+                        Animation = nil
                         Environment.FOVCircle.Color = GetColor(Environment.FOVSettings.Color)
                     end
                 end
@@ -528,11 +533,10 @@ local function Load()
         end
     end)
     
-    -- Initialize TriggerBot
     SetupTriggerBot()
 end
 
---// Functions
+-- API Functions
 Environment.Functions = {}
 
 function Environment.Functions:Exit()
@@ -613,16 +617,21 @@ end
 
 -- TriggerBot specific functions
 function Environment.Functions:ToggleTriggerBot(state)
-    Environment.TriggerBot.Enabled = state or not Environment.TriggerBot.Enabled
+    if state == nil then
+        Environment.TriggerBot.Enabled = not Environment.TriggerBot.Enabled
+    else
+        Environment.TriggerBot.Enabled = state
+    end
+    SetupTriggerBot()
     return Environment.TriggerBot.Enabled
 end
 
---// Support Check
+-- Support Check
 if not Drawing or not getgenv then
     print("Error: Missing required functions. Your exploit may not be supported.")
 end
 
---// Reload On Teleport
+-- Teleport Handler
 if Environment.Settings.ReloadOnTeleport then
     if queueonteleport then
         queueonteleport(game:HttpGet("https://raw.githubusercontent.com/Exunys/Aimbot-V2/main/Resources/Scripts/Main.lua"))
@@ -631,5 +640,5 @@ if Environment.Settings.ReloadOnTeleport then
     end
 end
 
---// Load
+-- Initialize
 Load()
