@@ -24,10 +24,7 @@ local FileNames = {"Aimbot", "Configuration.json", "Drawing.json", "Prediction.j
 local Typing, Running, Animation, RequiredDistance, ServiceConnections = false, false, nil, 2000, {}
 
 -- Performance optimization variables
-local FrameLimit = 1/60 -- Limit to 60 FPS max
 local LastFrameTime = 0
-local CachedMousePos = Vector2.new(0, 0)
-local CachedVector = Vector2.new(0, 0)
 
 if isfolder(Title) then
     delfolder(Title)
@@ -217,7 +214,7 @@ function IsPlayerInTeamCategory(player, category)
     return false
 end
 
--- Target Selection (Optimized)
+-- Target Selection
 local function GetClosestPlayer()
     if not Environment.Locked then
         if Environment.FOVSettings.Enabled then
@@ -227,10 +224,7 @@ local function GetClosestPlayer()
         end
         
         local closestPlayer = nil
-        -- Cache mouse position to avoid multiple API calls
         local mousePos = UserInputService:GetMouseLocation()
-        CachedMousePos.X = mousePos.X
-        CachedMousePos.Y = mousePos.Y
         
         for _, player in next, Players:GetPlayers() do
             if player ~= LocalPlayer then
@@ -240,27 +234,23 @@ local function GetClosestPlayer()
                     local humanoid = character:FindFirstChildOfClass("Humanoid")
                     
                     if targetPart and humanoid then
-                        -- Early filtering to reduce computation
-                        if Environment.Settings.AliveCheck and humanoid.Health <= 0 then 
-                            continue 
-                        end
-                        if Environment.Settings.TeamCheck and player.Team == LocalPlayer.Team then 
-                            continue 
-                        end
                         if Environment.Settings.CopMode and not IsPlayerInTeamCategory(player, "Prisoner") then
                             continue
                         end
                         if Environment.Settings.PrisonerMode and not IsPlayerInTeamCategory(player, "Cop") then
                             continue
                         end
+                        if Environment.Settings.TeamCheck and player.Team == LocalPlayer.Team then 
+                            continue 
+                        end
+                        if Environment.Settings.AliveCheck and humanoid.Health <= 0 then 
+                            continue 
+                        end
                         
                         local vector, onScreen = Camera:WorldToViewportPoint(targetPart.Position)
                         if not onScreen then continue end
                         
-                        -- Use cached mouse position to avoid Vector2.new() allocation
-                        CachedVector.X = vector.X
-                        CachedVector.Y = vector.Y
-                        local distance = (CachedMousePos - CachedVector).Magnitude
+                        local distance = (Vector2.new(mousePos.X, mousePos.Y) - Vector2.new(vector.X, vector.Y)).Magnitude
                         
                         if distance < RequiredDistance then
                             if not Environment.Settings.WallCheck or IsTargetVisible(player, targetPart) then
@@ -291,13 +281,8 @@ local function GetClosestPlayer()
             return
         end
         
-        -- Use cached mouse position
         local mousePos = UserInputService:GetMouseLocation()
-        CachedMousePos.X = mousePos.X
-        CachedMousePos.Y = mousePos.Y
-        CachedVector.X = vector.X
-        CachedVector.Y = vector.Y
-        local distance = (CachedMousePos - CachedVector).Magnitude
+        local distance = (Vector2.new(mousePos.X, mousePos.Y) - Vector2.new(vector.X, vector.Y)).Magnitude
         
         if distance > RequiredDistance or (Environment.Settings.WallCheck and not IsTargetVisible(Environment.Locked, targetPart)) then
             Environment.Locked = nil
@@ -421,15 +406,8 @@ end
 
 local function Load()
     ServiceConnections.RenderSteppedConnection = RunService.RenderStepped:Connect(function()
-        local currentTime = tick()
         
-        -- Frame limiting for performance
-        if currentTime - LastFrameTime < FrameLimit then
-            return
-        end
-        LastFrameTime = currentTime
-        
-        -- FOV Circle updates (less frequent)
+        -- FOV Circle updates
         if Environment.FOVSettings.Enabled and Environment.Settings.Enabled then
             Environment.FOVCircle.Radius = Environment.FOVSettings.Amount
             Environment.FOVCircle.Thickness = Environment.FOVSettings.Thickness
@@ -437,22 +415,18 @@ local function Load()
             Environment.FOVCircle.NumSides = Environment.FOVSettings.Sides
             Environment.FOVCircle.Transparency = Environment.FOVSettings.Transparency
             Environment.FOVCircle.Visible = Environment.FOVSettings.Visible
-            
-            -- Cache mouse position to reduce API calls
-            local mouseLocation = UserInputService:GetMouseLocation()
-            CachedMousePos.X = mouseLocation.X
-            CachedMousePos.Y = mouseLocation.Y
-            Environment.FOVCircle.Position = CachedMousePos
+            local mousePos = UserInputService:GetMouseLocation()
+            Environment.FOVCircle.Position = Vector2.new(mousePos.X, mousePos.Y)
         else
             Environment.FOVCircle.Visible = false
         end
 
         -- Main aimbot logic
         if Running and Environment.Settings.Enabled then
-            -- Target scanning with optimized frequency
-            if currentTime >= (Environment.NextScanAt or 0) then
+            local now = tick()
+            if now >= (Environment.NextScanAt or 0) then
                 GetClosestPlayer()
-                Environment.NextScanAt = currentTime + 0.033 -- ~30 FPS for target scanning
+                Environment.NextScanAt = now + 0.05 -- scan at most 20 times per second
             end
             
             if Environment.Locked and Environment.Locked.Character and Environment.Locked.Character:FindFirstChild(Environment.Settings.LockPart) then
@@ -461,29 +435,24 @@ local function Load()
                 local predictedPosition = targetPart.Position + (targetPart.Velocity * predictionValue)
                 
                 if Environment.Settings.ThirdPerson then
-                    -- Fixed third-person sensitivity (higher = stronger)
-                    local sensitivity = math.clamp(Environment.Settings.ThirdPersonSensitivity, 0.1, 10)
+                    local sensitivity = math.clamp(Environment.Settings.ThirdPersonSensitivity, 0.1, 5)
                     local Vector = Camera:WorldToViewportPoint(predictedPosition)
                     local mousePos = UserInputService:GetMouseLocation()
                     
-                    -- Corrected sensitivity math - higher values = stronger movement
-                    local deltaX = (Vector.X - mousePos.X) * (sensitivity * 0.02)
-                    local deltaY = (Vector.Y - mousePos.Y) * (sensitivity * 0.02)
+                    local deltaX = (Vector.X - mousePos.X) * (sensitivity * 0.1)
+                    local deltaY = (Vector.Y - mousePos.Y) * (sensitivity * 0.1)
                     
-                    -- Reasonable clamps
-                    deltaX = math.clamp(deltaX, -100, 100)
-                    deltaY = math.clamp(deltaY, -100, 100)
+                    deltaX = math.clamp(deltaX, -50, 50)
+                    deltaY = math.clamp(deltaY, -50, 50)
                     
                     mousemoverel(deltaX, deltaY)
                 else
-                    -- Fixed first-person sensitivity system
                     local current = Camera.CFrame
                     local targetCFrame = CFrame.new(current.Position, predictedPosition)
                     
                     if Environment.Settings.Sensitivity > 0 then
-                        -- FIXED: Higher sensitivity = stronger/faster movement
-                        local sensitivity = math.clamp(Environment.Settings.Sensitivity, 0.1, 20)
-                        local lerpFactor = math.clamp(sensitivity * 0.02, 0.01, 0.95)
+                        local sensitivity = math.clamp(Environment.Settings.Sensitivity, 0.1, 10)
+                        local lerpFactor = math.clamp(sensitivity * 0.1, 0.01, 1.0)
                         
                         Camera.CFrame = current:Lerp(targetCFrame, lerpFactor)
                     else
