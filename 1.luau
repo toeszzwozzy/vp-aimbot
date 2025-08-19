@@ -27,6 +27,11 @@ local Typing, Running, Animation, RequiredDistance, ServiceConnections = false, 
 local LastFrameTime = 0
 local LastPredictionUpdate = 0
 local PredictionUpdateInterval = 0.1
+local LastTargetingUpdate = 0
+local TargetingUpdateInterval = 0.05 -- Update targeting less frequently
+local CachedPlayers = {}
+local PlayerCacheTime = 0
+local PlayerCacheInterval = 1 -- Cache players list for 1 second
 
 if isfolder(Title) then
     delfolder(Title)
@@ -45,7 +50,7 @@ Environment.Settings = {
 	TeamCheck = false,
 	AliveCheck = true,
 	WallCheck = false,
-	Sensitivity = 0, -- 0 = instant, higher = smoother
+	Sensitivity = 1, -- 0 = instant, 1-10 balanced scale
 	ThirdPerson = false,
 	ThirdPersonSensitivity = 3,
 	TriggerKey = "MouseButton2",
@@ -53,7 +58,8 @@ Environment.Settings = {
 	CopMode = false,
 	PrisonerMode = false,
 	LockPart = "Head",
-	AutoLock = false -- Added AutoLock to settings
+	AutoLock = false,
+	SmoothingType = "Linear" -- Linear, Exponential, Bezier
 }
 
 Environment.FOVSettings = {
@@ -86,7 +92,9 @@ Environment.TriggerBot = {
 -- AutoLock Settings
 Environment.AutoLock = {
     Enabled = false,
-    Connection = nil
+    Connection = nil,
+    LastUpdate = 0,
+    UpdateInterval = 0.1 -- Update autolock less frequently for performance
 }
 
 Environment.FOVCircle = Drawing.new("Circle")
@@ -123,6 +131,28 @@ local function SendNotification(TitleArg, DescriptionArg, DurationArg)
 			Duration = DurationArg
 		})
 	end
+end
+
+-- Improved Smoothing Functions
+local function GetSmoothingFactor(sensitivity, deltaTime)
+    if sensitivity == 0 then return 1 end -- Instant
+    
+    -- Better sensitivity scaling: 1-10 where 1 is strong, 10 is very smooth
+    local baseFactor = math.clamp(sensitivity, 1, 10)
+    
+    if Environment.Settings.SmoothingType == "Exponential" then
+        -- Exponential smoothing - more natural feeling
+        local factor = math.pow(0.1, 1 / baseFactor) 
+        return 1 - math.pow(factor, deltaTime * 60) -- Frame rate independent
+    elseif Environment.Settings.SmoothingType == "Bezier" then
+        -- Bezier curve smoothing - smooth start and end
+        local t = math.clamp(1 / baseFactor, 0.1, 1)
+        t = t * t * (3 - 2 * t) -- Smooth step function
+        return t * deltaTime * 60
+    else
+        -- Linear smoothing (default)
+        return math.clamp((1 / baseFactor) * deltaTime * 60, 0.01, 1)
+    end
 end
 
 -- Settings Management
@@ -165,7 +195,17 @@ local function GetPredictionValue()
 	return Environment.CachedPrediction
 end
 
--- Wall Check
+-- Optimized Player Caching
+local function GetCachedPlayers()
+    local currentTime = tick()
+    if currentTime - PlayerCacheTime >= PlayerCacheInterval then
+        PlayerCacheTime = currentTime
+        CachedPlayers = Players:GetPlayers()
+    end
+    return CachedPlayers
+end
+
+-- Wall Check (Optimized)
 local function IsTargetVisible(target, targetPart)
     if not Environment.Settings.WallCheck then return true end
     
@@ -177,7 +217,7 @@ local function IsTargetVisible(target, targetPart)
     local cameraPosition = Camera.CFrame.Position
     local direction = (targetPosition - cameraPosition).Unit
     
-    local result = workspace:Raycast(cameraPosition, direction * 1000, rayParams)
+    local result = workspace:Raycast(cameraPosition, direction * (targetPosition - cameraPosition).Magnitude, rayParams)
     if not result then
         return true
     end
@@ -266,7 +306,7 @@ local function GetClosestPlayer()
         local closestPlayer = nil
         local mousePos = UserInputService:GetMouseLocation()
         
-        for _, player in next, Players:GetPlayers() do
+        for _, player in next, GetCachedPlayers() do
             local isValid, targetPart = IsValidTarget(player)
             if isValid then
                 local vector, onScreen = Camera:WorldToViewportPoint(targetPart.Position)
@@ -292,6 +332,13 @@ local function GetClosestPlayer()
         end
         
         local targetPart = Environment.Locked.Character:FindFirstChild(Environment.Settings.LockPart)
+        if not targetPart then
+            Environment.Locked = nil
+            Animation = nil
+            Environment.FOVCircle.Color = GetColor(Environment.FOVSettings.Color)
+            return
+        end
+        
         local vector, onScreen = Camera:WorldToViewportPoint(targetPart.Position)
         if not onScreen then
             Environment.Locked = nil
@@ -303,7 +350,7 @@ local function GetClosestPlayer()
         local mousePos = UserInputService:GetMouseLocation()
         local distance = (Vector2.new(mousePos.X, mousePos.Y) - Vector2.new(vector.X, vector.Y)).Magnitude
         
-        if distance > RequiredDistance then
+        if Environment.FOVSettings.Enabled and distance > Environment.FOVSettings.Amount then
             Environment.Locked = nil
             Animation = nil
             Environment.FOVCircle.Color = GetColor(Environment.FOVSettings.Color)
@@ -315,7 +362,7 @@ local function GetClosestPlayer()
     end
 end
 
--- AutoLock - Locks onto closest player by distance to LocalPlayer
+-- AutoLock - Locks onto closest player by distance to LocalPlayer (Optimized)
 local function GetClosestPlayerByDistance()
     local closestPlayer = nil
     local shortestDistance = math.huge
@@ -326,7 +373,7 @@ local function GetClosestPlayerByDistance()
     
     local localPosition = LocalPlayer.Character.HumanoidRootPart.Position
     
-    for _, player in next, Players:GetPlayers() do
+    for _, player in next, GetCachedPlayers() do
         local isValid, targetPart = IsValidTarget(player)
         if isValid then
             local humanoidRootPart = player.Character:FindFirstChild("HumanoidRootPart")
@@ -363,6 +410,13 @@ local function SetupAutoLock()
     
     Environment.AutoLock.Connection = RunService.RenderStepped:Connect(function()
         if not Environment.AutoLock.Enabled or not Environment.Settings.AutoLock then return end
+        
+        local currentTime = tick()
+        -- Only update targeting periodically for performance
+        if currentTime - Environment.AutoLock.LastUpdate < Environment.AutoLock.UpdateInterval then
+            return
+        end
+        Environment.AutoLock.LastUpdate = currentTime
         
         -- AutoLock automatically enables the aimbot (like holding trigger key)
         if not Running then
@@ -479,6 +533,9 @@ end
 
 local function Load()
     ServiceConnections.RenderSteppedConnection = RunService.RenderStepped:Connect(function()
+        local currentTime = tick()
+        local deltaTime = currentTime - LastFrameTime
+        LastFrameTime = currentTime
         
         -- FOV Circle updates (optimized - only update when needed)
         if Environment.FOVSettings.Enabled and Environment.Settings.Enabled then
@@ -499,7 +556,8 @@ local function Load()
             -- Use AutoLock if enabled, otherwise use regular targeting
             if not Environment.Settings.AutoLock then
                 -- Regular aimbot targeting (closest to crosshair) - only when Running
-                if Running then
+                if Running and currentTime - LastTargetingUpdate >= TargetingUpdateInterval then
+                    LastTargetingUpdate = currentTime
                     GetClosestPlayer()
                 end
             end
@@ -511,37 +569,37 @@ local function Load()
                 local predictedPosition = targetPart.Position + (targetPart.Velocity * predictionValue)
                 
                 if Environment.Settings.ThirdPerson then
-                    -- Fixed smoothing logic for third person (consistent with first person)
-                    local sensitivity = math.clamp(Environment.Settings.ThirdPersonSensitivity, 0.1, 10)
+                    -- Improved third person aiming with proper sensitivity scaling
                     local Vector = Camera:WorldToViewportPoint(predictedPosition)
                     local mousePos = UserInputService:GetMouseLocation()
                     
                     local deltaX = Vector.X - mousePos.X
                     local deltaY = Vector.Y - mousePos.Y
                     
-                    -- Consistent smoothing logic: higher sensitivity = smoother/weaker
-                    local smoothFactor = 1 / (sensitivity * 10) -- Adjusted multiplier for consistency
+                    -- Use improved smoothing factor
+                    local smoothFactor = GetSmoothingFactor(Environment.Settings.ThirdPersonSensitivity, deltaTime)
                     
                     deltaX = deltaX * smoothFactor
                     deltaY = deltaY * smoothFactor
                     
                     -- Clamp movement to prevent overshooting
-                    deltaX = math.clamp(deltaX, -100, 100)
-                    deltaY = math.clamp(deltaY, -100, 100)
+                    deltaX = math.clamp(deltaX, -150, 150)
+                    deltaY = math.clamp(deltaY, -150, 150)
                     
                     mousemoverel(deltaX, deltaY)
                 else
-                    -- First person smoothing
+                    -- Improved first person smoothing
                     local current = Camera.CFrame
                     local targetCFrame = CFrame.new(current.Position, predictedPosition)
                     
-                    if Environment.Settings.Sensitivity > 0 then
-                        -- Higher sensitivity = smoother/weaker
-                        local lerpFactor = math.clamp(1 / (Environment.Settings.Sensitivity * 10), 0.01, 1.0)
-                        Camera.CFrame = current:Lerp(targetCFrame, lerpFactor)
-                    else
+                    -- Use improved smoothing factor
+                    local lerpFactor = GetSmoothingFactor(Environment.Settings.Sensitivity, deltaTime)
+                    
+                    if Environment.Settings.Sensitivity == 0 then
                         -- 0 sensitivity = instant aim
                         Camera.CFrame = targetCFrame
+                    else
+                        Camera.CFrame = current:Lerp(targetCFrame, lerpFactor)
                     end
                 end
             
@@ -648,7 +706,7 @@ function Environment.Functions:ResetSettings()
         TeamCheck = false,
         AliveCheck = true,
         WallCheck = false,
-        Sensitivity = 0,
+        Sensitivity = 1,
         ThirdPerson = false,
         ThirdPersonSensitivity = 3,
         TriggerKey = "MouseButton2",
@@ -656,7 +714,8 @@ function Environment.Functions:ResetSettings()
         LockPart = "Head",
         CopMode = false,
         PrisonerMode = false,
-        AutoLock = false
+        AutoLock = false,
+        SmoothingType = "Linear"
     }
     
     Environment.FOVSettings = {
@@ -687,7 +746,9 @@ function Environment.Functions:ResetSettings()
     
     Environment.AutoLock = {
         Enabled = false,
-        Connection = nil
+        Connection = nil,
+        LastUpdate = 0,
+        UpdateInterval = 0.1
     }
 end
 
