@@ -353,11 +353,21 @@ local function SetupAutoLock()
     Environment.AutoLock.Enabled = Environment.Settings.AutoLock
     
     if not Environment.AutoLock.Enabled then 
+        -- If AutoLock is disabled, reset Running state
+        if Running and Environment.Settings.AutoLock == false then
+            Running = false
+            Environment.Locked = nil
+        end
         return 
     end
     
     Environment.AutoLock.Connection = RunService.RenderStepped:Connect(function()
         if not Environment.AutoLock.Enabled or not Environment.Settings.AutoLock then return end
+        
+        -- AutoLock automatically enables the aimbot (like holding trigger key)
+        if not Running then
+            Running = true
+        end
         
         -- Check if current target is still valid
         if Environment.Locked then
@@ -485,23 +495,15 @@ local function Load()
         end
 
         -- Main aimbot logic
-        if Running and Environment.Settings.Enabled then
+        if Environment.Settings.Enabled and (Running or Environment.Settings.AutoLock) then
             -- Use AutoLock if enabled, otherwise use regular targeting
-            if Environment.Settings.AutoLock then
-                -- AutoLock handles target selection automatically
-                if not Environment.Locked then
-                    Environment.Locked = GetClosestPlayerByDistance()
-                else
-                    -- Validate current target
-                    local isValid = IsValidTarget(Environment.Locked)
-                    if not isValid then
-                        Environment.Locked = GetClosestPlayerByDistance()
-                    end
+            if not Environment.Settings.AutoLock then
+                -- Regular aimbot targeting (closest to crosshair) - only when Running
+                if Running then
+                    GetClosestPlayer()
                 end
-            else
-                -- Regular aimbot targeting (closest to crosshair)
-                GetClosestPlayer()
             end
+            -- Note: AutoLock targeting is handled in SetupAutoLock() connection
             
             if Environment.Locked and Environment.Locked.Character and Environment.Locked.Character:FindFirstChild(Environment.Settings.LockPart) then
                 local targetPart = Environment.Locked.Character[Environment.Settings.LockPart]
@@ -707,6 +709,15 @@ function Environment.Functions:ToggleAutoLock(state)
     else
         Environment.Settings.AutoLock = state
     end
+    
+    -- When disabling AutoLock, stop the aimbot
+    if not Environment.Settings.AutoLock then
+        Running = false
+        Environment.Locked = nil
+        Animation = nil
+        Environment.FOVCircle.Color = GetColor(Environment.FOVSettings.Color)
+    end
+    
     SetupAutoLock()
     return Environment.Settings.AutoLock
 end
