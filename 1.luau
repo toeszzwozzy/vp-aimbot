@@ -471,7 +471,7 @@ function Environment.Functions:ResetSettings()
         SendNotifications = true,
         SaveSettings = true, 
         ReloadOnTeleport = true,
-        Enabled = true,
+        Enabled = false,
         TeamCheck = false,
         AliveCheck = true,
         WallCheck = false,
