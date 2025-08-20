@@ -1,4 +1,30 @@
--- Process Prevention
+local function IsValidTargetAutoLock(player)
+    if not player or not player.Parent or player == LocalPlayer then return false end
+    
+    local character = player.Character
+    if not character or not character.Parent then return false end
+    
+    local targetPart = character:FindFirstChild(Environment.Settings.LockPart)
+    local humanoid = character:FindFirstChildOfClass("Humanoid")
+    local humanoidRootPart = character:FindFirstChild("HumanoidRootPart")
+    
+    if not targetPart or not targetPart.Parent or not humanoid or not humanoidRootPart or not humanoidRootPart.Parent then return false end
+    
+    if Environment.Settings.CopMode and not IsPlayerInTeamCategory(player, "Prisoner") then
+        return false
+    end
+    if Environment.Settings.PrisonerMode and not IsPlayerInTeamCategory(player, "Cop") then
+        return false
+    end
+    if Environment.Settings.TeamCheck and player.Team == LocalPlayer.Team then 
+        return false 
+    end
+    if Environment.Settings.AliveCheck and humanoid.Health <= 0 then 
+        return false 
+    end
+    
+    return true, targetPart
+end-- Process Prevention
 pcall(function()
 	getgenv().Aimbot.Functions:Exit()
 end)
@@ -207,6 +233,7 @@ end
 
 local function IsTargetVisible(target, targetPart)
     if not Environment.Settings.WallCheck then return true end
+    if not target or not target.Character or not targetPart or not targetPart.Parent then return false end
     
     local rayParams = RaycastParams.new()
     rayParams.FilterType = Enum.RaycastFilterType.Blacklist
@@ -214,13 +241,16 @@ local function IsTargetVisible(target, targetPart)
     
     local targetPosition = targetPart.Position
     local cameraPosition = Camera.CFrame.Position
-    local direction = (targetPosition - cameraPosition).Unit
+    local direction = (targetPosition - cameraPosition)
+    
+    if direction.Magnitude < 1 then return false end
+    direction = direction.Unit
     
     local result = workspace:Raycast(cameraPosition, direction * (targetPosition - cameraPosition).Magnitude, rayParams)
     if not result then
         return true
     end
-    return result.Instance:IsDescendantOf(target.Character)
+    return result.Instance and result.Instance:IsDescendantOf(target.Character)
 end
 
 function IsPlayerInTeamCategory(player, category)
@@ -262,15 +292,16 @@ function IsPlayerInTeamCategory(player, category)
 end
 
 local function IsValidTarget(player)
-    if not player or player == LocalPlayer then return false end
+    if not player or not player.Parent or player == LocalPlayer then return false end
     
     local character = player.Character
-    if not character then return false end
+    if not character or not character.Parent then return false end
     
     local targetPart = character:FindFirstChild(Environment.Settings.LockPart)
     local humanoid = character:FindFirstChildOfClass("Humanoid")
+    local humanoidRootPart = character:FindFirstChild("HumanoidRootPart")
     
-    if not targetPart or not humanoid then return false end
+    if not targetPart or not targetPart.Parent or not humanoid or not humanoidRootPart or not humanoidRootPart.Parent then return false end
     
     if Environment.Settings.CopMode and not IsPlayerInTeamCategory(player, "Prisoner") then
         return false
@@ -284,8 +315,10 @@ local function IsValidTarget(player)
     if Environment.Settings.AliveCheck and humanoid.Health <= 0 then 
         return false 
     end
-    if Environment.Settings.WallCheck and not IsTargetVisible(player, targetPart) then
-        return false
+    
+    if Environment.Settings.WallCheck then
+        local visible = IsTargetVisible(player, targetPart)
+        if not visible then return false end
     end
     
     return true, targetPart
@@ -361,6 +394,12 @@ local function GetClosestPlayerByDistance()
     local currentTime = tick()
     
     if currentTime - Environment.AutoLock.LastUpdate < Environment.AutoLock.UpdateInterval then
+        if Environment.Locked and Environment.Locked.Parent then
+            local isValid, targetPart = IsValidTargetAutoLock(Environment.Locked)
+            if not isValid then
+                Environment.Locked = nil
+            end
+        end
         return Environment.Locked
     end
     Environment.AutoLock.LastUpdate = currentTime
@@ -377,14 +416,16 @@ local function GetClosestPlayerByDistance()
     local shortestDistance = math.huge
     
     if Environment.Locked then
-        if Environment.Locked.Parent == nil then
+        if not Environment.Locked.Parent then
             Environment.Locked = nil
         else
-            local isValid, targetPart = IsValidTarget(Environment.Locked)
+            local isValid, targetPart = IsValidTargetAutoLock(Environment.Locked)
             if isValid and targetPart and Environment.Locked.Character and Environment.Locked.Character:FindFirstChild("HumanoidRootPart") then
-                local currentDistance = (localPosition - Environment.Locked.Character.HumanoidRootPart.Position).Magnitude
-                if currentDistance <= shortestDistance + 75 then
-                    return Environment.Locked
+                local humanoidRootPart = Environment.Locked.Character.HumanoidRootPart
+                if humanoidRootPart and humanoidRootPart.Parent then
+                    local currentDistance = (localPosition - humanoidRootPart.Position).Magnitude
+                    shortestDistance = currentDistance
+                    closestPlayer = Environment.Locked
                 end
             else
                 Environment.Locked = nil
@@ -394,12 +435,12 @@ local function GetClosestPlayerByDistance()
     
     for _, player in next, GetCachedPlayers() do
         if player.Parent and player.Character and player.Character.Parent then
-            local isValid, targetPart = IsValidTarget(player)
+            local isValid, targetPart = IsValidTargetAutoLock(player)
             if isValid and targetPart then
                 local humanoidRootPart = player.Character:FindFirstChild("HumanoidRootPart")
                 if humanoidRootPart and humanoidRootPart.Parent then
                     local distance = (localPosition - humanoidRootPart.Position).Magnitude
-                    if distance < shortestDistance then
+                    if distance < shortestDistance - 25 then
                         shortestDistance = distance
                         closestPlayer = player
                     end
