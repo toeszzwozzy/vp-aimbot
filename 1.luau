@@ -204,6 +204,21 @@ local function IsValidTarget(player)
     return true, targetPart
 end
 
+-- Enhanced target existence validation
+local function IsTargetStillValid(player)
+    if not player or not player.Parent then return false end
+    if not ValidTargets[player] then return false end
+    
+    local character = player.Character
+    if not character or not character.Parent then return false end
+    
+    local targetPart = ValidTargets[player].part
+    if not targetPart or not targetPart.Parent then return false end
+    
+    -- Re-validate the target with current conditions
+    return IsValidTarget(player)
+end
+
 -- Target Finding
 local function UpdateValidTargets()
     if tick() - LastTargetUpdate < 0.15 then return end
@@ -365,8 +380,15 @@ local function Load()
 
         -- Targeting
         if Environment.Settings.Enabled then
+            -- Validate current lock first
+            if Environment.Locked and not IsTargetStillValid(Environment.Locked) then
+                Environment.Locked = nil
+            end
+            
             if Environment.Settings.AutoLock or Running then
-                Environment.Locked = GetClosestTarget()
+                if not Environment.Locked then
+                    Environment.Locked = GetClosestTarget()
+                end
             else
                 Environment.Locked = nil
             end
@@ -374,24 +396,92 @@ local function Load()
             -- Aiming
             if Environment.Locked and ValidTargets[Environment.Locked] then
                 local targetData = ValidTargets[Environment.Locked]
-                local predictedPosition = targetData.part.Position + (targetData.part.Velocity * GetPredictionValue())
+                local targetPart = targetData.part
                 
-                if Environment.Settings.ThirdPerson and mousemoverel then
-                    local Vector = Camera:WorldToViewportPoint(predictedPosition)
-                    local mousePos = UserInputService:GetMouseLocation()
-                    
-                    local deltaX = (Vector.X - mousePos.X) * GetSmoothingFactor(Environment.Settings.ThirdPersonSensitivity, deltaTime)
-                    local deltaY = (Vector.Y - mousePos.Y) * GetSmoothingFactor(Environment.Settings.ThirdPersonSensitivity, deltaTime)
-                    
-                    mousemoverel(math.clamp(deltaX, -150, 150), math.clamp(deltaY, -150, 150))
+                -- Double-check target part still exists
+                if not targetPart or not targetPart.Parent then
+                    Environment.Locked = nil
+                    Environment.FOVCircle.Color = GetColor(Environment.FOVSettings.Color)
                 else
-                    local lerpFactor = GetSmoothingFactor(Environment.Settings.Sensitivity, deltaTime)
-                    Camera.CFrame = Environment.Settings.Sensitivity == 0 and 
-                        CFrame.new(Camera.CFrame.Position, predictedPosition) or
-                        Camera.CFrame:Lerp(CFrame.new(Camera.CFrame.Position, predictedPosition), lerpFactor)
+                    local predictedPosition = targetPart.Position + (targetPart.Velocity * GetPredictionValue())
+                    
+                    if Environment.Settings.ThirdPerson and mousemoverel then
+                        local Vector, onScreen = Camera:WorldToViewportPoint(predictedPosition)
+                        
+                        if onScreen then
+                            local mousePos = UserInputService:GetMouseLocation()
+                            local screenSize = Camera.ViewportSize
+                            
+                            -- Calculate movement deltas with improved sensitivity
+                            local deltaX = (Vector.X - mousePos.X) * GetSmoothingFactor(Environment.Settings.ThirdPersonSensitivity, deltaTime)
+                            local deltaY = (Vector.Y - mousePos.Y) * GetSmoothingFactor(Environment.Settings.ThirdPersonSensitivity, deltaTime)
+                            
+                            -- Prevent mouse from going off-screen with improved bounds
+                            local newMouseX = mousePos.X + deltaX
+                            local newMouseY = mousePos.Y + deltaY
+                            
+                            -- Clamp to stay within screen boundaries with padding
+                            local padding = 10
+                            if newMouseX < padding or newMouseX > screenSize.X - padding then
+                                deltaX = 0
+                            end
+                            if newMouseY < padding or newMouseY > screenSize.Y - padding then
+                                deltaY = 0
+                            end
+                            
+                            -- Apply more restrictive movement limits
+                            deltaX = math.clamp(deltaX, -100, 100)
+                            deltaY = math.clamp(deltaY, -100, 100)
+                            
+                            -- Only move if delta is significant enough to prevent jittery movement
+                            if math.abs(deltaX) > 1 or math.abs(deltaY) > 1 then
+                                mousemoverel(deltaX, deltaY)
+                            end
+                        end
+                    else
+                        -- Improved first-person camera turning with angle optimization
+                        local currentCFrame = Camera.CFrame
+                        local targetDirection = (predictedPosition - currentCFrame.Position).Unit
+                        local currentDirection = currentCFrame.LookVector
+                        
+                        -- Calculate angle between current look direction and target
+                        local angle = math.acos(math.clamp(currentDirection:Dot(targetDirection), -1, 1))
+                        
+                        -- For targets behind us (angle > 90 degrees), choose optimal turning direction
+                        if angle > math.rad(90) then
+                            local rightVector = currentCFrame.RightVector
+                            local targetCross = currentDirection:Cross(targetDirection)
+                            local rightDot = rightVector:Dot(targetCross)
+                            
+                            -- Determine if we should turn left or right based on shortest path
+                            local turnMultiplier = rightDot > 0 and 1 or -1
+                            local maxTurnSpeed = math.rad(120) -- Max 120 degrees per second for fast behind-target turning
+                            local turnSpeed = math.min(angle, maxTurnSpeed * deltaTime) * turnMultiplier
+                            
+                            -- Create intermediate target position for smoother turning
+                            local rotationAxis = Vector3.new(0, 1, 0) -- Y-axis for horizontal turning
+                            local intermediateDirection = currentDirection * math.cos(turnSpeed) + rightVector * math.sin(turnSpeed)
+                            local intermediateTarget = currentCFrame.Position + intermediateDirection * 100
+                            
+                            local newCFrame = CFrame.new(currentCFrame.Position, intermediateTarget)
+                            Camera.CFrame = newCFrame
+                        else
+                            -- Normal forward targeting with improved lerping
+                            local lerpFactor = GetSmoothingFactor(Environment.Settings.Sensitivity, deltaTime)
+                            
+                            -- Use higher lerp factor for close angles to improve responsiveness
+                            if angle < math.rad(30) then
+                                lerpFactor = math.min(lerpFactor * 1.5, 1)
+                            end
+                            
+                            local targetCFrame = CFrame.new(currentCFrame.Position, predictedPosition)
+                            Camera.CFrame = Environment.Settings.Sensitivity == 0 and targetCFrame or
+                                currentCFrame:Lerp(targetCFrame, lerpFactor)
+                        end
+                    end
+                
+                    Environment.FOVCircle.Color = GetColor(Environment.FOVSettings.LockedColor)
                 end
-            
-                Environment.FOVCircle.Color = GetColor(Environment.FOVSettings.LockedColor)
             else
                 Environment.FOVCircle.Color = GetColor(Environment.FOVSettings.Color)
             end
