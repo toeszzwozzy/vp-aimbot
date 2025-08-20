@@ -23,21 +23,19 @@ local Title = "Exunys Developer"
 local FileNames = {"Aimbot", "Configuration.json", "Drawing.json", "Prediction.json"}
 local Typing, Running, Animation, RequiredDistance, ServiceConnections = false, false, nil, 2000, {}
 
--- Performance optimization variables
 local LastFrameTime = 0
 local LastPredictionUpdate = 0
 local PredictionUpdateInterval = 0.1
 local LastTargetingUpdate = 0
-local TargetingUpdateInterval = 0.05 -- Update targeting less frequently
+local TargetingUpdateInterval = 0.05
 local CachedPlayers = {}
 local PlayerCacheTime = 0
-local PlayerCacheInterval = 1 -- Cache players list for 1 second
+local PlayerCacheInterval = 1
 
 if isfolder(Title) then
     delfolder(Title)
 end
 
--- Support Functions
 local mousemoverel = mousemoverel or (Input and Input.MouseMove)
 local queueonteleport = queue_on_teleport or syn.queue_on_teleport
 
@@ -50,7 +48,7 @@ Environment.Settings = {
 	TeamCheck = false,
 	AliveCheck = true,
 	WallCheck = false,
-	Sensitivity = 1, -- 0 = instant, 1-10 balanced scale
+	Sensitivity = 1,
 	ThirdPerson = false,
 	ThirdPersonSensitivity = 3,
 	TriggerKey = "MouseButton2",
@@ -59,7 +57,7 @@ Environment.Settings = {
 	PrisonerMode = false,
 	LockPart = "Head",
 	AutoLock = false,
-	SmoothingType = "Linear" -- Linear, Exponential, Bezier
+	SmoothingType = "Linear"
 }
 
 Environment.FOVSettings = {
@@ -82,19 +80,17 @@ Environment.PredictionSettings = {
 	CustomPrediction = 0.2
 }
 
--- TriggerBot Settings
 Environment.TriggerBot = {
     Enabled = false,
     Debounce = false,
     Connection = nil
 }
 
--- AutoLock Settings
 Environment.AutoLock = {
     Enabled = false,
     Connection = nil,
     LastUpdate = 0,
-    UpdateInterval = 0.1 -- Update autolock less frequently for performance
+    UpdateInterval = 0.1
 }
 
 Environment.FOVCircle = Drawing.new("Circle")
@@ -133,29 +129,23 @@ local function SendNotification(TitleArg, DescriptionArg, DurationArg)
 	end
 end
 
--- Improved Smoothing Functions
 local function GetSmoothingFactor(sensitivity, deltaTime)
-    if sensitivity == 0 then return 1 end -- Instant
+    if sensitivity == 0 then return 1 end
     
-    -- Better sensitivity scaling: 1-10 where 1 is strong, 10 is very smooth
     local baseFactor = math.clamp(sensitivity, 1, 10)
     
     if Environment.Settings.SmoothingType == "Exponential" then
-        -- Exponential smoothing - more natural feeling
         local factor = math.pow(0.1, 1 / baseFactor) 
-        return 1 - math.pow(factor, deltaTime * 60) -- Frame rate independent
+        return 1 - math.pow(factor, deltaTime * 60)
     elseif Environment.Settings.SmoothingType == "Bezier" then
-        -- Bezier curve smoothing - smooth start and end
         local t = math.clamp(1 / baseFactor, 0.1, 1)
-        t = t * t * (3 - 2 * t) -- Smooth step function
+        t = t * t * (3 - 2 * t)
         return t * deltaTime * 60
     else
-        -- Linear smoothing (default)
         return math.clamp((1 / baseFactor) * deltaTime * 60, 0.01, 1)
     end
 end
 
--- Settings Management
 local function SaveSettings()
 	if Environment.Settings.SaveSettings then
 		if isfile(Title.."/"..FileNames[1].."/"..FileNames[2]) then
@@ -170,7 +160,6 @@ local function SaveSettings()
 	end
 end
 
--- Optimized Prediction System
 local function GetPredictionValue()
 	if not Environment.PredictionSettings.Enabled then
 		return 0
@@ -178,7 +167,6 @@ local function GetPredictionValue()
 	
 	local currentTime = tick()
 	
-	-- Only update prediction periodically for performance
 	if currentTime - LastPredictionUpdate >= PredictionUpdateInterval then
 		LastPredictionUpdate = currentTime
 		
@@ -195,17 +183,21 @@ local function GetPredictionValue()
 	return Environment.CachedPrediction
 end
 
--- Optimized Player Caching
 local function GetCachedPlayers()
     local currentTime = tick()
     if currentTime - PlayerCacheTime >= PlayerCacheInterval then
         PlayerCacheTime = currentTime
-        CachedPlayers = Players:GetPlayers()
+        local players = Players:GetPlayers()
+        CachedPlayers = {}
+        for i, player in ipairs(players) do
+            if player ~= LocalPlayer then
+                table.insert(CachedPlayers, player)
+            end
+        end
     end
     return CachedPlayers
 end
 
--- Wall Check (Optimized)
 local function IsTargetVisible(target, targetPart)
     if not Environment.Settings.WallCheck then return true end
     
@@ -262,9 +254,8 @@ function IsPlayerInTeamCategory(player, category)
     return false
 end
 
--- Player validation function for both regular and autolock
 local function IsValidTarget(player)
-    if player == LocalPlayer then return false end
+    if not player or player == LocalPlayer then return false end
     
     local character = player.Character
     if not character then return false end
@@ -274,7 +265,6 @@ local function IsValidTarget(player)
     
     if not targetPart or not humanoid then return false end
     
-    -- Team mode checks
     if Environment.Settings.CopMode and not IsPlayerInTeamCategory(player, "Prisoner") then
         return false
     end
@@ -294,8 +284,14 @@ local function IsValidTarget(player)
     return true, targetPart
 end
 
--- Target Selection (Regular aimbot - closest to crosshair)
 local function GetClosestPlayer()
+    local currentTime = tick()
+    
+    if currentTime - LastTargetingUpdate < TargetingUpdateInterval then
+        return
+    end
+    LastTargetingUpdate = currentTime
+    
     if not Environment.Locked then
         if Environment.FOVSettings.Enabled then
             RequiredDistance = Environment.FOVSettings.Amount
@@ -322,17 +318,9 @@ local function GetClosestPlayer()
         end
         
         Environment.Locked = closestPlayer
-    elseif Environment.Locked and Environment.Locked.Character then
-        local isValid = IsValidTarget(Environment.Locked)
-        if not isValid then
-            Environment.Locked = nil
-            Animation = nil
-            Environment.FOVCircle.Color = GetColor(Environment.FOVSettings.Color)
-            return
-        end
-        
-        local targetPart = Environment.Locked.Character:FindFirstChild(Environment.Settings.LockPart)
-        if not targetPart then
+    elseif Environment.Locked then
+        local isValid, targetPart = IsValidTarget(Environment.Locked)
+        if not isValid or not targetPart then
             Environment.Locked = nil
             Animation = nil
             Environment.FOVCircle.Color = GetColor(Environment.FOVSettings.Color)
@@ -362,16 +350,31 @@ local function GetClosestPlayer()
     end
 end
 
--- AutoLock - Locks onto closest player by distance to LocalPlayer (Optimized)
 local function GetClosestPlayerByDistance()
-    local closestPlayer = nil
-    local shortestDistance = math.huge
+    local currentTime = tick()
+    
+    if currentTime - Environment.AutoLock.LastUpdate < Environment.AutoLock.UpdateInterval then
+        return Environment.Locked
+    end
+    Environment.AutoLock.LastUpdate = currentTime
     
     if not LocalPlayer.Character or not LocalPlayer.Character:FindFirstChild("HumanoidRootPart") then
         return nil
     end
     
     local localPosition = LocalPlayer.Character.HumanoidRootPart.Position
+    local closestPlayer = nil
+    local shortestDistance = math.huge
+    
+    if Environment.Locked then
+        local isValid = IsValidTarget(Environment.Locked)
+        if isValid and Environment.Locked.Character:FindFirstChild("HumanoidRootPart") then
+            local currentDistance = (localPosition - Environment.Locked.Character.HumanoidRootPart.Position).Magnitude
+            if currentDistance <= shortestDistance + 50 then
+                return Environment.Locked
+            end
+        end
+    end
     
     for _, player in next, GetCachedPlayers() do
         local isValid, targetPart = IsValidTarget(player)
@@ -396,11 +399,9 @@ local function SetupAutoLock()
         Environment.AutoLock.Connection = nil
     end
     
-    -- Sync AutoLock.Enabled with Settings.AutoLock
     Environment.AutoLock.Enabled = Environment.Settings.AutoLock
     
     if not Environment.AutoLock.Enabled then 
-        -- If AutoLock is disabled, reset Running state
         if Running and Environment.Settings.AutoLock == false then
             Running = false
             Environment.Locked = nil
@@ -408,37 +409,17 @@ local function SetupAutoLock()
         return 
     end
     
-    Environment.AutoLock.Connection = RunService.RenderStepped:Connect(function()
+    Environment.AutoLock.Connection = RunService.Heartbeat:Connect(function()
         if not Environment.AutoLock.Enabled or not Environment.Settings.AutoLock then return end
         
-        local currentTime = tick()
-        -- Only update targeting periodically for performance
-        if currentTime - Environment.AutoLock.LastUpdate < Environment.AutoLock.UpdateInterval then
-            return
-        end
-        Environment.AutoLock.LastUpdate = currentTime
-        
-        -- AutoLock automatically enables the aimbot (like holding trigger key)
         if not Running then
             Running = true
         end
         
-        -- Check if current target is still valid
-        if Environment.Locked then
-            local isValid = IsValidTarget(Environment.Locked)
-            if not isValid then
-                Environment.Locked = nil
-            end
-        end
-        
-        -- If no valid target, find closest player by distance
-        if not Environment.Locked then
-            Environment.Locked = GetClosestPlayerByDistance()
-        end
+        Environment.Locked = GetClosestPlayerByDistance()
     end)
 end
 
--- TriggerBot Loop
 local function SetupTriggerBot()
     if Environment.TriggerBot.Connection then
         Environment.TriggerBot.Connection:Disconnect()
@@ -447,7 +428,7 @@ local function SetupTriggerBot()
     
     if not Environment.TriggerBot.Enabled then return end
     
-    Environment.TriggerBot.Connection = RunService.RenderStepped:Connect(function()
+    Environment.TriggerBot.Connection = RunService.Heartbeat:Connect(function()
         if not Environment.TriggerBot.Enabled then return end
         if Environment.TriggerBot.Debounce then return end
         
@@ -471,7 +452,7 @@ local function SetupTriggerBot()
             mouse1press()
             
             repeat
-                RunService.RenderStepped:Wait()
+                RunService.Heartbeat:Wait()
                 local CurrentTarget = Mouse.Target
                 local CurrentPlayer = CurrentTarget and CurrentTarget.Parent and Players:GetPlayerFromCharacter(CurrentTarget.Parent)
                 
@@ -486,7 +467,6 @@ local function SetupTriggerBot()
     end)
 end
 
--- Input Detection
 ServiceConnections.TypingStartedConnection = UserInputService.TextBoxFocused:Connect(function()
     Typing = true
 end)
@@ -537,7 +517,6 @@ local function Load()
         local deltaTime = currentTime - LastFrameTime
         LastFrameTime = currentTime
         
-        -- FOV Circle updates (optimized - only update when needed)
         if Environment.FOVSettings.Enabled and Environment.Settings.Enabled then
             Environment.FOVCircle.Radius = Environment.FOVSettings.Amount
             Environment.FOVCircle.Thickness = Environment.FOVSettings.Thickness
@@ -551,17 +530,12 @@ local function Load()
             Environment.FOVCircle.Visible = false
         end
 
-        -- Main aimbot logic
         if Environment.Settings.Enabled and (Running or Environment.Settings.AutoLock) then
-            -- Use AutoLock if enabled, otherwise use regular targeting
             if not Environment.Settings.AutoLock then
-                -- Regular aimbot targeting (closest to crosshair) - only when Running
-                if Running and currentTime - LastTargetingUpdate >= TargetingUpdateInterval then
-                    LastTargetingUpdate = currentTime
+                if Running then
                     GetClosestPlayer()
                 end
             end
-            -- Note: AutoLock targeting is handled in SetupAutoLock() connection
             
             if Environment.Locked and Environment.Locked.Character and Environment.Locked.Character:FindFirstChild(Environment.Settings.LockPart) then
                 local targetPart = Environment.Locked.Character[Environment.Settings.LockPart]
@@ -569,34 +543,28 @@ local function Load()
                 local predictedPosition = targetPart.Position + (targetPart.Velocity * predictionValue)
                 
                 if Environment.Settings.ThirdPerson then
-                    -- Improved third person aiming with proper sensitivity scaling
                     local Vector = Camera:WorldToViewportPoint(predictedPosition)
                     local mousePos = UserInputService:GetMouseLocation()
                     
                     local deltaX = Vector.X - mousePos.X
                     local deltaY = Vector.Y - mousePos.Y
                     
-                    -- Use improved smoothing factor
                     local smoothFactor = GetSmoothingFactor(Environment.Settings.ThirdPersonSensitivity, deltaTime)
                     
                     deltaX = deltaX * smoothFactor
                     deltaY = deltaY * smoothFactor
                     
-                    -- Clamp movement to prevent overshooting
                     deltaX = math.clamp(deltaX, -150, 150)
                     deltaY = math.clamp(deltaY, -150, 150)
                     
                     mousemoverel(deltaX, deltaY)
                 else
-                    -- Improved first person smoothing
                     local current = Camera.CFrame
                     local targetCFrame = CFrame.new(current.Position, predictedPosition)
                     
-                    -- Use improved smoothing factor
                     local lerpFactor = GetSmoothingFactor(Environment.Settings.Sensitivity, deltaTime)
                     
                     if Environment.Settings.Sensitivity == 0 then
-                        -- 0 sensitivity = instant aim
                         Camera.CFrame = targetCFrame
                     else
                         Camera.CFrame = current:Lerp(targetCFrame, lerpFactor)
@@ -612,7 +580,6 @@ local function Load()
         end
     end)
 
-    -- Input handling (Simplified and optimized)
     local function HandleTriggerInput(active)
         if Environment.Settings.Toggle then
             if active then
@@ -752,7 +719,6 @@ function Environment.Functions:ResetSettings()
     }
 end
 
--- TriggerBot specific functions
 function Environment.Functions:ToggleTriggerBot(state)
     if state == nil then
         Environment.TriggerBot.Enabled = not Environment.TriggerBot.Enabled
@@ -763,7 +729,6 @@ function Environment.Functions:ToggleTriggerBot(state)
     return Environment.TriggerBot.Enabled
 end
 
--- AutoLock specific functions
 function Environment.Functions:ToggleAutoLock(state)
     if state == nil then
         Environment.Settings.AutoLock = not Environment.Settings.AutoLock
@@ -771,7 +736,6 @@ function Environment.Functions:ToggleAutoLock(state)
         Environment.Settings.AutoLock = state
     end
     
-    -- When disabling AutoLock, stop the aimbot
     if not Environment.Settings.AutoLock then
         Running = false
         Environment.Locked = nil
@@ -797,5 +761,4 @@ if Environment.Settings.ReloadOnTeleport then
     end
 end
 
--- Initialize
 Load()
