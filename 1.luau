@@ -90,7 +90,7 @@ Environment.AutoLock = {
     Enabled = false,
     Connection = nil,
     LastUpdate = 0,
-    UpdateInterval = 0.1
+    UpdateInterval = 0.25
 }
 
 Environment.FOVCircle = Drawing.new("Circle")
@@ -190,12 +190,19 @@ local function GetCachedPlayers()
         local players = Players:GetPlayers()
         CachedPlayers = {}
         for i, player in ipairs(players) do
-            if player ~= LocalPlayer then
+            if player ~= LocalPlayer and player.Parent then
                 table.insert(CachedPlayers, player)
             end
         end
     end
-    return CachedPlayers
+    
+    local validPlayers = {}
+    for _, player in ipairs(CachedPlayers) do
+        if player.Parent and player.Character and player.Character.Parent then
+            table.insert(validPlayers, player)
+        end
+    end
+    return validPlayers
 end
 
 local function IsTargetVisible(target, targetPart)
@@ -359,6 +366,9 @@ local function GetClosestPlayerByDistance()
     Environment.AutoLock.LastUpdate = currentTime
     
     if not LocalPlayer.Character or not LocalPlayer.Character:FindFirstChild("HumanoidRootPart") then
+        if Environment.Locked then
+            Environment.Locked = nil
+        end
         return nil
     end
     
@@ -367,24 +377,32 @@ local function GetClosestPlayerByDistance()
     local shortestDistance = math.huge
     
     if Environment.Locked then
-        local isValid = IsValidTarget(Environment.Locked)
-        if isValid and Environment.Locked.Character:FindFirstChild("HumanoidRootPart") then
-            local currentDistance = (localPosition - Environment.Locked.Character.HumanoidRootPart.Position).Magnitude
-            if currentDistance <= shortestDistance + 50 then
-                return Environment.Locked
+        if Environment.Locked.Parent == nil then
+            Environment.Locked = nil
+        else
+            local isValid, targetPart = IsValidTarget(Environment.Locked)
+            if isValid and targetPart and Environment.Locked.Character and Environment.Locked.Character:FindFirstChild("HumanoidRootPart") then
+                local currentDistance = (localPosition - Environment.Locked.Character.HumanoidRootPart.Position).Magnitude
+                if currentDistance <= shortestDistance + 75 then
+                    return Environment.Locked
+                end
+            else
+                Environment.Locked = nil
             end
         end
     end
     
     for _, player in next, GetCachedPlayers() do
-        local isValid, targetPart = IsValidTarget(player)
-        if isValid then
-            local humanoidRootPart = player.Character:FindFirstChild("HumanoidRootPart")
-            if humanoidRootPart then
-                local distance = (localPosition - humanoidRootPart.Position).Magnitude
-                if distance < shortestDistance then
-                    shortestDistance = distance
-                    closestPlayer = player
+        if player.Parent and player.Character and player.Character.Parent then
+            local isValid, targetPart = IsValidTarget(player)
+            if isValid and targetPart then
+                local humanoidRootPart = player.Character:FindFirstChild("HumanoidRootPart")
+                if humanoidRootPart and humanoidRootPart.Parent then
+                    local distance = (localPosition - humanoidRootPart.Position).Magnitude
+                    if distance < shortestDistance then
+                        shortestDistance = distance
+                        closestPlayer = player
+                    end
                 end
             end
         end
@@ -537,42 +555,50 @@ local function Load()
                 end
             end
             
-            if Environment.Locked and Environment.Locked.Character and Environment.Locked.Character:FindFirstChild(Environment.Settings.LockPart) then
+            if Environment.Locked and Environment.Locked.Parent and Environment.Locked.Character and Environment.Locked.Character.Parent and Environment.Locked.Character:FindFirstChild(Environment.Settings.LockPart) then
                 local targetPart = Environment.Locked.Character[Environment.Settings.LockPart]
-                local predictionValue = GetPredictionValue()
-                local predictedPosition = targetPart.Position + (targetPart.Velocity * predictionValue)
-                
-                if Environment.Settings.ThirdPerson then
-                    local Vector = Camera:WorldToViewportPoint(predictedPosition)
-                    local mousePos = UserInputService:GetMouseLocation()
+                if targetPart and targetPart.Parent then
+                    local predictionValue = GetPredictionValue()
+                    local predictedPosition = targetPart.Position + (targetPart.Velocity * predictionValue)
                     
-                    local deltaX = Vector.X - mousePos.X
-                    local deltaY = Vector.Y - mousePos.Y
-                    
-                    local smoothFactor = GetSmoothingFactor(Environment.Settings.ThirdPersonSensitivity, deltaTime)
-                    
-                    deltaX = deltaX * smoothFactor
-                    deltaY = deltaY * smoothFactor
-                    
-                    deltaX = math.clamp(deltaX, -150, 150)
-                    deltaY = math.clamp(deltaY, -150, 150)
-                    
-                    mousemoverel(deltaX, deltaY)
-                else
-                    local current = Camera.CFrame
-                    local targetCFrame = CFrame.new(current.Position, predictedPosition)
-                    
-                    local lerpFactor = GetSmoothingFactor(Environment.Settings.Sensitivity, deltaTime)
-                    
-                    if Environment.Settings.Sensitivity == 0 then
-                        Camera.CFrame = targetCFrame
+                    if Environment.Settings.ThirdPerson then
+                        local Vector = Camera:WorldToViewportPoint(predictedPosition)
+                        local mousePos = UserInputService:GetMouseLocation()
+                        
+                        local deltaX = Vector.X - mousePos.X
+                        local deltaY = Vector.Y - mousePos.Y
+                        
+                        local smoothFactor = GetSmoothingFactor(Environment.Settings.ThirdPersonSensitivity, deltaTime)
+                        
+                        deltaX = deltaX * smoothFactor
+                        deltaY = deltaY * smoothFactor
+                        
+                        deltaX = math.clamp(deltaX, -150, 150)
+                        deltaY = math.clamp(deltaY, -150, 150)
+                        
+                        mousemoverel(deltaX, deltaY)
                     else
-                        Camera.CFrame = current:Lerp(targetCFrame, lerpFactor)
+                        local current = Camera.CFrame
+                        local targetCFrame = CFrame.new(current.Position, predictedPosition)
+                        
+                        local lerpFactor = GetSmoothingFactor(Environment.Settings.Sensitivity, deltaTime)
+                        
+                        if Environment.Settings.Sensitivity == 0 then
+                            Camera.CFrame = targetCFrame
+                        else
+                            Camera.CFrame = current:Lerp(targetCFrame, lerpFactor)
+                        end
                     end
+                
+                    Environment.FOVCircle.Color = GetColor(Environment.FOVSettings.LockedColor)
+                else
+                    Environment.Locked = nil
+                    Environment.FOVCircle.Color = GetColor(Environment.FOVSettings.Color)
                 end
-            
-                Environment.FOVCircle.Color = GetColor(Environment.FOVSettings.LockedColor)
             else
+                if Environment.Locked then
+                    Environment.Locked = nil
+                end
                 Environment.FOVCircle.Color = GetColor(Environment.FOVSettings.Color)
             end
         else
