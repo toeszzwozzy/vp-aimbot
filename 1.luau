@@ -82,10 +82,19 @@ end
 local function GetSmoothingFactor(sensitivity, deltaTime)
     if sensitivity == 0 then return 1 end -- 0 = instant/no smoothing
     
-    -- Convert sensitivity (0-1) to smoothing factor
-    -- Lower sensitivity = stronger aim = higher smoothing factor
-    -- Higher sensitivity = smoother aim = lower smoothing factor
-    local smoothingStrength = math.clamp(sensitivity * 10, 0.1, 10)
+    -- Handle different sensitivity ranges
+    -- First person: 0-1, Third person: 0.1-5
+    -- Convert to normalized smoothing strength (higher = more smoothing/weaker aim)
+    local smoothingStrength
+    if sensitivity <= 1 then
+        -- First person range (0-1) -> convert to 0.1-10 smoothing strength
+        smoothingStrength = sensitivity * 10
+    else
+        -- Third person range (1-5) -> convert to 10-50 smoothing strength  
+        smoothingStrength = 10 + ((sensitivity - 1) * 10)
+    end
+    
+    smoothingStrength = math.clamp(smoothingStrength, 0.1, 50)
     
     if Environment.Settings.SmoothingType == "Exponential" then
         local factor = 1 - math.exp(-smoothingStrength * deltaTime * 60)
