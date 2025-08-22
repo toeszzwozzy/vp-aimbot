@@ -82,31 +82,24 @@ end
 local function GetSmoothingFactor(sensitivity, deltaTime)
     if sensitivity == 0 then return 1 end -- 0 = instant/no smoothing
     
-    -- Handle different sensitivity ranges
-    -- First person: 0-1, Third person: 0.1-5
-    -- Convert to normalized smoothing strength (higher = more smoothing/weaker aim)
-    local smoothingStrength
+    -- Convert sensitivity to smoothing factor (inverse relationship)
+    -- Higher sensitivity = lower smoothing factor = smoother aim
+    local smoothingFactor
+    
     if sensitivity <= 1 then
-        -- First person range (0-1) -> convert to 0.1-10 smoothing strength
-        smoothingStrength = sensitivity * 10
+        -- First person range (0-1)
+        -- 0.1 -> 0.9, 0.5 -> 0.5, 1.0 -> 0.1
+        smoothingFactor = math.max(0.05, 1 - sensitivity)
     else
-        -- Third person range (1-5) -> convert to 10-50 smoothing strength  
-        smoothingStrength = 10 + ((sensitivity - 1) * 10)
+        -- Third person range (1-5)  
+        -- 1.0 -> 0.1, 2.0 -> 0.05, 3.0 -> 0.033, 4.0 -> 0.025, 5.0 -> 0.02
+        smoothingFactor = math.max(0.01, 0.1 / sensitivity)
     end
     
-    smoothingStrength = math.clamp(smoothingStrength, 0.1, 50)
+    -- Apply frame rate compensation
+    local frameCompensatedFactor = 1 - math.pow(1 - smoothingFactor, deltaTime * 60)
     
-    if Environment.Settings.SmoothingType == "Exponential" then
-        local factor = 1 - math.exp(-smoothingStrength * deltaTime * 60)
-        return math.clamp(factor, 0.01, 1)
-    elseif Environment.Settings.SmoothingType == "Bezier" then
-        local t = math.clamp(smoothingStrength * deltaTime * 60, 0, 1)
-        t = t * t * (3 - 2 * t)
-        return math.clamp(t, 0.01, 1)
-    else
-        -- Linear smoothing
-        return math.clamp(smoothingStrength * deltaTime * 60, 0.01, 1)
-    end
+    return math.clamp(frameCompensatedFactor, 0.01, 1)
 end
 
 
