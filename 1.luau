@@ -10,8 +10,6 @@ local Environment = getgenv().Aimbot
 -- Services
 local RunService = game:GetService("RunService")
 local UserInputService = game:GetService("UserInputService")
-local HttpService = game:GetService("HttpService")
-local StarterGui = game:GetService("StarterGui")
 local Players = game:GetService("Players")
 local Camera = workspace.CurrentCamera
 local Stats = game:GetService("Stats")
@@ -26,11 +24,10 @@ local mousemoverel = mousemoverel or (Input and Input.MouseMove)
 -- Settings
 Environment.Settings = {
     SendNotifications = false,
-    SaveSettings = true,
     ReloadOnTeleport = false,
     Enabled = false,
     TeamCheck = false,
-    AliveCheck = true,
+    AliveCheck = false,
     WallCheck = false,
     Sensitivity = 1,
     ThirdPerson = false,
@@ -74,15 +71,6 @@ Environment.TriggerBot = {
 Environment.FOVCircle = Drawing.new("Circle")
 Environment.Locked = nil
 
--- Utils
-local function Encode(Table)
-    return Table and type(Table) == "table" and HttpService:JSONEncode(Table)
-end
-
-local function Decode(String)
-    return String and type(String) == "string" and HttpService:JSONDecode(String)
-end
-
 local function GetColor(Color)
     local R = tonumber(string.match(Color, "([%d]+)[%s]*,[%s]*[%d]+[%s]*,[%s]*[%d]+"))
     local G = tonumber(string.match(Color, "[%d]+[%s]*,[%s]*([%d]+)[%s]*,[%s]*[%d]+"))
@@ -90,47 +78,28 @@ local function GetColor(Color)
     return Color3.fromRGB(R, G, B)
 end
 
-local function SendNotification(TitleArg, DescriptionArg, DurationArg)
-    if Environment.Settings.SendNotifications then
-        StarterGui:SetCore("SendNotification", {
-            Title = TitleArg,
-            Text = DescriptionArg,
-            Duration = DurationArg
-        })
-    end
-end
-
 -- Smoothing
 local function GetSmoothingFactor(sensitivity, deltaTime)
-    if sensitivity == 0 then return 1 end
+    if sensitivity == 0 then return 1 end -- 0 = instant/no smoothing
     
-    local baseFactor = math.clamp(sensitivity, 1, 10)
+    -- Convert sensitivity (0-1) to smoothing factor
+    -- Lower sensitivity = stronger aim = higher smoothing factor
+    -- Higher sensitivity = smoother aim = lower smoothing factor
+    local smoothingStrength = math.clamp(sensitivity * 10, 0.1, 10)
     
     if Environment.Settings.SmoothingType == "Exponential" then
-        return 1 - math.pow(math.pow(0.1, 1 / baseFactor), deltaTime * 60)
+        local factor = 1 - math.exp(-smoothingStrength * deltaTime * 60)
+        return math.clamp(factor, 0.01, 1)
     elseif Environment.Settings.SmoothingType == "Bezier" then
-        local t = math.clamp(1 / baseFactor, 0.1, 1)
+        local t = math.clamp(smoothingStrength * deltaTime * 60, 0, 1)
         t = t * t * (3 - 2 * t)
-        return t * deltaTime * 60
+        return math.clamp(t, 0.01, 1)
     else
-        return math.clamp((1 / baseFactor) * deltaTime * 60, 0.01, 1)
+        -- Linear smoothing
+        return math.clamp(smoothingStrength * deltaTime * 60, 0.01, 1)
     end
 end
 
--- File System
-local function SaveSettings()
-    if not Environment.Settings.SaveSettings then return end
-    
-    if isfile("Exunys Developer/Aimbot/Configuration.json") then
-        writefile("Exunys Developer/Aimbot/Configuration.json", Encode(Environment.Settings))
-    end
-    if isfile("Exunys Developer/Aimbot/Drawing.json") then
-        writefile("Exunys Developer/Aimbot/Drawing.json", Encode(Environment.FOVSettings))
-    end
-    if isfile("Exunys Developer/Aimbot/Prediction.json") then
-        writefile("Exunys Developer/Aimbot/Prediction.json", Encode(Environment.PredictionSettings))
-    end
-end
 
 -- Prediction
 local function GetPredictionValue()
@@ -214,8 +183,6 @@ local function IsTargetStillValid(player)
     
     local targetPart = ValidTargets[player].part
     if not targetPart or not targetPart.Parent then return false end
-    
-    -- Re-validate the target with current conditions
     return IsValidTarget(player)
 end
 
@@ -324,48 +291,13 @@ ServiceConnections.TypingEndedConnection = UserInputService.TextBoxFocusReleased
     Typing = false
 end)
 
--- File Setup
-if Environment.Settings.SaveSettings then
-    if not isfolder("Exunys Developer") then
-        makefolder("Exunys Developer")
-    end
-    if not isfolder("Exunys Developer/Aimbot") then
-        makefolder("Exunys Developer/Aimbot")
-    end
-    
-    if not isfile("Exunys Developer/Aimbot/Configuration.json") then
-        writefile("Exunys Developer/Aimbot/Configuration.json", Encode(Environment.Settings))
-    else
-        Environment.Settings = Decode(readfile("Exunys Developer/Aimbot/Configuration.json"))
-    end
-    
-    if not isfile("Exunys Developer/Aimbot/Drawing.json") then
-        writefile("Exunys Developer/Aimbot/Drawing.json", Encode(Environment.FOVSettings))
-    else
-        Environment.FOVSettings = Decode(readfile("Exunys Developer/Aimbot/Drawing.json"))
-    end
-    
-    if not isfile("Exunys Developer/Aimbot/Prediction.json") then
-        writefile("Exunys Developer/Aimbot/Prediction.json", Encode(Environment.PredictionSettings))
-    else
-        Environment.PredictionSettings = Decode(readfile("Exunys Developer/Aimbot/Prediction.json"))
-    end
-    
-    task.spawn(function()
-        while task.wait(10) do
-            if not Environment.Settings or not Environment.Settings.SaveSettings then break end
-            SaveSettings()
-        end
-    end)
-end
 
 -- Main Loop
 local function Load()
     ServiceConnections.RenderSteppedConnection = RunService.RenderStepped:Connect(function()
         local deltaTime = tick() - LastFrameTime
         LastFrameTime = tick()
-        
-        -- FOV Circle
+
         if Environment.FOVSettings.Enabled and Environment.Settings.Enabled then
             Environment.FOVCircle.Radius = Environment.FOVSettings.Amount
             Environment.FOVCircle.Thickness = Environment.FOVSettings.Thickness
@@ -378,9 +310,7 @@ local function Load()
             Environment.FOVCircle.Visible = false
         end
 
-        -- Targeting
         if Environment.Settings.Enabled then
-            -- Validate current lock first
             if Environment.Locked and not IsTargetStillValid(Environment.Locked) then
                 Environment.Locked = nil
             end
@@ -393,12 +323,10 @@ local function Load()
                 Environment.Locked = nil
             end
             
-            -- Aiming
             if Environment.Locked and ValidTargets[Environment.Locked] then
                 local targetData = ValidTargets[Environment.Locked]
                 local targetPart = targetData.part
-                
-                -- Double-check target part still exists
+ 
                 if not targetPart or not targetPart.Parent then
                     Environment.Locked = nil
                     Environment.FOVCircle.Color = GetColor(Environment.FOVSettings.Color)
@@ -412,15 +340,12 @@ local function Load()
                             local mousePos = UserInputService:GetMouseLocation()
                             local screenSize = Camera.ViewportSize
                             
-                            -- Calculate movement deltas with improved sensitivity
                             local deltaX = (Vector.X - mousePos.X) * GetSmoothingFactor(Environment.Settings.ThirdPersonSensitivity, deltaTime)
                             local deltaY = (Vector.Y - mousePos.Y) * GetSmoothingFactor(Environment.Settings.ThirdPersonSensitivity, deltaTime)
                             
-                            -- Prevent mouse from going off-screen with improved bounds
                             local newMouseX = mousePos.X + deltaX
                             local newMouseY = mousePos.Y + deltaY
                             
-                            -- Clamp to stay within screen boundaries with padding
                             local padding = 10
                             if newMouseX < padding or newMouseX > screenSize.X - padding then
                                 deltaX = 0
@@ -429,47 +354,38 @@ local function Load()
                                 deltaY = 0
                             end
                             
-                            -- Apply more restrictive movement limits
                             deltaX = math.clamp(deltaX, -100, 100)
                             deltaY = math.clamp(deltaY, -100, 100)
                             
-                            -- Only move if delta is significant enough to prevent jittery movement
                             if math.abs(deltaX) > 1 or math.abs(deltaY) > 1 then
                                 mousemoverel(deltaX, deltaY)
                             end
                         end
                     else
-                        -- Improved first-person camera turning with angle optimization
                         local currentCFrame = Camera.CFrame
                         local targetDirection = (predictedPosition - currentCFrame.Position).Unit
                         local currentDirection = currentCFrame.LookVector
-                        
-                        -- Calculate angle between current look direction and target
+
                         local angle = math.acos(math.clamp(currentDirection:Dot(targetDirection), -1, 1))
                         
-                        -- For targets behind us (angle > 90 degrees), choose optimal turning direction
                         if angle > math.rad(90) then
                             local rightVector = currentCFrame.RightVector
                             local targetCross = currentDirection:Cross(targetDirection)
                             local rightDot = rightVector:Dot(targetCross)
                             
-                            -- Determine if we should turn left or right based on shortest path
                             local turnMultiplier = rightDot > 0 and 1 or -1
-                            local maxTurnSpeed = math.rad(120) -- Max 120 degrees per second for fast behind-target turning
+                            local maxTurnSpeed = math.rad(120)
                             local turnSpeed = math.min(angle, maxTurnSpeed * deltaTime) * turnMultiplier
                             
-                            -- Create intermediate target position for smoother turning
-                            local rotationAxis = Vector3.new(0, 1, 0) -- Y-axis for horizontal turning
+                            local rotationAxis = Vector3.new(0, 1, 0) 
                             local intermediateDirection = currentDirection * math.cos(turnSpeed) + rightVector * math.sin(turnSpeed)
                             local intermediateTarget = currentCFrame.Position + intermediateDirection * 100
                             
                             local newCFrame = CFrame.new(currentCFrame.Position, intermediateTarget)
                             Camera.CFrame = newCFrame
                         else
-                            -- Normal forward targeting with improved lerping
                             local lerpFactor = GetSmoothingFactor(Environment.Settings.Sensitivity, deltaTime)
                             
-                            -- Use higher lerp factor for close angles to improve responsiveness
                             if angle < math.rad(30) then
                                 lerpFactor = math.min(lerpFactor * 1.5, 1)
                             end
@@ -535,7 +451,6 @@ end
 Environment.Functions = {}
 
 function Environment.Functions:Exit()
-    SaveSettings()
     for _, connection in pairs(ServiceConnections) do
         connection:Disconnect()
     end
@@ -558,12 +473,11 @@ end
 
 function Environment.Functions:ResetSettings()
     Environment.Settings = {
-        SendNotifications = true,
-        SaveSettings = true, 
-        ReloadOnTeleport = true,
+        SendNotifications = false,
+        ReloadOnTeleport = false,
         Enabled = false,
         TeamCheck = false,
-        AliveCheck = true,
+        AliveCheck = false,
         WallCheck = false,
         Sensitivity = 1,
         ThirdPerson = false,
@@ -626,11 +540,6 @@ end
 if not Drawing or not getgenv then
     print("Error: Missing required functions. Your exploit may not be supported.")
     return
-end
-
--- Teleport Handler
-if Environment.Settings.ReloadOnTeleport and (queue_on_teleport or syn.queue_on_teleport) then
-    (queue_on_teleport or syn.queue_on_teleport)(game:HttpGet("https://raw.githubusercontent.com/Exunys/Aimbot-V2/main/Resources/Scripts/Main.lua"))
 end
 
 Load()
