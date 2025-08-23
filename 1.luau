@@ -386,47 +386,9 @@ local function Load()
                                 mousemoverel(deltaX, deltaY)
                             end
                         else
-                            -- Target is behind camera or off-screen, rotate camera to bring target into view
-                            local currentCFrame = Camera.CFrame
-                            local targetDirection = (predictedPosition - currentCFrame.Position).Unit
-                            local currentDirection = currentCFrame.LookVector
-                            
-                            -- Calculate angle between current look direction and target
-                            local angle = math.acos(math.clamp(currentDirection:Dot(targetDirection), -1, 1))
-                            
-                            if angle > math.rad(45) then -- Only rotate if target is significantly off-screen
-                                -- Calculate horizontal rotation needed
-                                local currentPos = currentCFrame.Position
-                                local targetPos = predictedPosition
-                                
-                                -- Project target position onto horizontal plane for smoother rotation
-                                local horizontalTarget = Vector3.new(targetPos.X, currentPos.Y, targetPos.Z)
-                                local horizontalDirection = (horizontalTarget - currentPos).Unit
-                                
-                                -- Calculate yaw rotation needed
-                                local currentYaw = math.atan2(-currentDirection.X, -currentDirection.Z)
-                                local targetYaw = math.atan2(-horizontalDirection.X, -horizontalDirection.Z)
-                                local yawDiff = targetYaw - currentYaw
-                                
-                                -- Normalize angle difference to [-π, π]
-                                if yawDiff > math.pi then
-                                    yawDiff = yawDiff - 2 * math.pi
-                                elseif yawDiff < -math.pi then
-                                    yawDiff = yawDiff + 2 * math.pi
-                                end
-                                
-                                -- Apply smooth camera rotation
-                                local maxTurnSpeed = math.rad(120) -- degrees per second
-                                local turnSpeed = math.min(math.abs(yawDiff), maxTurnSpeed * deltaTime)
-                                local actualTurn = turnSpeed * (yawDiff > 0 and 1 or -1)
-                                
-                                local newYaw = currentYaw + actualTurn
-                                local newDirection = Vector3.new(-math.sin(newYaw), currentDirection.Y, -math.cos(newYaw))
-                                
-                                -- Create new camera CFrame with smooth rotation
-                                local newCFrame = CFrame.lookAt(currentPos, currentPos + newDirection)
-                                Camera.CFrame = newCFrame
-                            end
+                            -- Target is off-screen, instantly snap camera to target
+                            local targetCFrame = CFrame.lookAt(Camera.CFrame.Position, predictedPosition)
+                            Camera.CFrame = targetCFrame
                         end
                     else
                         -- First person camera aiming - Fixed logic
@@ -437,39 +399,11 @@ local function Load()
                         -- Calculate the angle between current look direction and target
                         local angle = math.acos(math.clamp(currentDirection:Dot(targetDirection), -1, 1))
                         
-                        -- Handle targets behind the player (> 90 degrees)
-                        if angle > math.rad(90) then
-                            -- Calculate horizontal rotation needed
-                            local currentPos = currentCFrame.Position
-                            local targetPos = predictedPosition
-                            
-                            -- Project target position onto horizontal plane
-                            local horizontalTarget = Vector3.new(targetPos.X, currentPos.Y, targetPos.Z)
-                            local horizontalDirection = (horizontalTarget - currentPos).Unit
-                            
-                            -- Calculate yaw rotation needed
-                            local currentYaw = math.atan2(-currentDirection.X, -currentDirection.Z)
-                            local targetYaw = math.atan2(-horizontalDirection.X, -horizontalDirection.Z)
-                            local yawDiff = targetYaw - currentYaw
-                            
-                            -- Normalize angle difference to [-π, π]
-                            if yawDiff > math.pi then
-                                yawDiff = yawDiff - 2 * math.pi
-                            elseif yawDiff < -math.pi then
-                                yawDiff = yawDiff + 2 * math.pi
-                            end
-                            
-                            -- Apply smooth rotation towards target
-                            local maxTurnSpeed = math.rad(180) -- degrees per second
-                            local turnSpeed = math.min(math.abs(yawDiff), maxTurnSpeed * deltaTime)
-                            local actualTurn = turnSpeed * (yawDiff > 0 and 1 or -1)
-                            
-                            local newYaw = currentYaw + actualTurn
-                            local newDirection = Vector3.new(-math.sin(newYaw), 0, -math.cos(newYaw))
-                            
-                            -- Create new camera CFrame with smooth rotation
-                            local newCFrame = CFrame.lookAt(currentPos, currentPos + newDirection)
-                            Camera.CFrame = newCFrame
+                        -- Handle targets behind the player (> 45 degrees)
+                        if angle > math.rad(45) then
+                            -- Instantly snap camera to target when off-screen
+                            local targetCFrame = CFrame.lookAt(currentCFrame.Position, predictedPosition)
+                            Camera.CFrame = targetCFrame
                         else
                             -- Target is in front, use normal aiming
                             local lerpFactor = GetSmoothingFactor(Environment.Settings.Sensitivity, deltaTime, Environment.Settings.AutoLock)
