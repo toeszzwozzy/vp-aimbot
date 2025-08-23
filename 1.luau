@@ -20,6 +20,8 @@ local Typing, Running, ServiceConnections = false, false, {}
 local LastFrameTime, LastTargetUpdate, LastPredictionUpdate = 0, 0, 0
 local ValidTargets, CachedPrediction = {}, 0
 local mousemoverel = mousemoverel or (Input and Input.MouseMove)
+local LastPlayerTeam = LocalPlayer.Team
+local LastCharacter = LocalPlayer.Character
 
 -- Settings
 Environment.Settings = {
@@ -79,8 +81,11 @@ local function GetColor(Color)
 end
 
 -- Smoothing
-local function GetSmoothingFactor(sensitivity, deltaTime)
-    if sensitivity == 0 then return 1 end -- 0 = instant/no smoothing
+local function GetSmoothingFactor(sensitivity, deltaTime, isAutoLock)
+    if sensitivity == 0 then 
+        -- For auto lock with 0 sensitivity, still apply minimal smoothing to prevent snapping
+        return isAutoLock and 0.85 or 1
+    end
     
     -- Convert sensitivity to smoothing factor (inverse relationship)
     -- Higher sensitivity = lower smoothing factor = smoother aim
@@ -94,6 +99,11 @@ local function GetSmoothingFactor(sensitivity, deltaTime)
         -- Third person range (1-5)  
         -- 1.0 -> 0.1, 2.0 -> 0.05, 3.0 -> 0.033, 4.0 -> 0.025, 5.0 -> 0.02
         smoothingFactor = math.max(0.01, 0.1 / sensitivity)
+    end
+    
+    -- Apply additional smoothing for auto lock to reduce snapping
+    if isAutoLock then
+        smoothingFactor = smoothingFactor * 0.7 -- Make auto lock smoother
     end
     
     -- Apply frame rate compensation
@@ -165,6 +175,9 @@ local function IsValidTarget(player)
     local humanoid = character:FindFirstChildOfClass("Humanoid")
     
     if not targetPart or not humanoid then return false end
+    
+    -- Fix: Add LocalPlayer team check to prevent issues after respawn
+    if not LocalPlayer.Team then return false end
     
     if Environment.Settings.CopMode and not IsPlayerInTeamCategory(player, "Prisoner") then return false end
     if Environment.Settings.PrisonerMode and not IsPlayerInTeamCategory(player, "Cop") then return false end
@@ -313,6 +326,15 @@ local function Load()
         end
 
         if Environment.Settings.Enabled then
+            -- Check for team changes or character respawn and clear locked target
+            if LocalPlayer.Team ~= LastPlayerTeam or LocalPlayer.Character ~= LastCharacter then
+                LastPlayerTeam = LocalPlayer.Team
+                LastCharacter = LocalPlayer.Character
+                Environment.Locked = nil
+                ValidTargets = {}
+                Environment.FOVCircle.Color = GetColor(Environment.FOVSettings.Color)
+            end
+            
             if Environment.Locked and not IsTargetStillValid(Environment.Locked) then
                 Environment.Locked = nil
             end
@@ -342,8 +364,9 @@ local function Load()
                             local mousePos = UserInputService:GetMouseLocation()
                             local screenSize = Camera.ViewportSize
                             
-                            local deltaX = (Vector.X - mousePos.X) * GetSmoothingFactor(Environment.Settings.ThirdPersonSensitivity, deltaTime)
-                            local deltaY = (Vector.Y - mousePos.Y) * GetSmoothingFactor(Environment.Settings.ThirdPersonSensitivity, deltaTime)
+                            local smoothingFactor = GetSmoothingFactor(Environment.Settings.ThirdPersonSensitivity, deltaTime, Environment.Settings.AutoLock)
+                            local deltaX = (Vector.X - mousePos.X) * smoothingFactor
+                            local deltaY = (Vector.Y - mousePos.Y) * smoothingFactor
                             
                             local newMouseX = mousePos.X + deltaX
                             local newMouseY = mousePos.Y + deltaY
@@ -359,40 +382,106 @@ local function Load()
                             deltaX = math.clamp(deltaX, -100, 100)
                             deltaY = math.clamp(deltaY, -100, 100)
                             
-                            if math.abs(deltaX) > 1 or math.abs(deltaY) > 1 then
+                            if math.abs(deltaX) > 0.5 or math.abs(deltaY) > 0.5 then
                                 mousemoverel(deltaX, deltaY)
+                            end
+                        else
+                            -- Target is behind camera or off-screen, rotate camera to bring target into view
+                            local currentCFrame = Camera.CFrame
+                            local targetDirection = (predictedPosition - currentCFrame.Position).Unit
+                            local currentDirection = currentCFrame.LookVector
+                            
+                            -- Calculate angle between current look direction and target
+                            local angle = math.acos(math.clamp(currentDirection:Dot(targetDirection), -1, 1))
+                            
+                            if angle > math.rad(45) then -- Only rotate if target is significantly off-screen
+                                -- Calculate horizontal rotation needed
+                                local currentPos = currentCFrame.Position
+                                local targetPos = predictedPosition
+                                
+                                -- Project target position onto horizontal plane for smoother rotation
+                                local horizontalTarget = Vector3.new(targetPos.X, currentPos.Y, targetPos.Z)
+                                local horizontalDirection = (horizontalTarget - currentPos).Unit
+                                
+                                -- Calculate yaw rotation needed
+                                local currentYaw = math.atan2(-currentDirection.X, -currentDirection.Z)
+                                local targetYaw = math.atan2(-horizontalDirection.X, -horizontalDirection.Z)
+                                local yawDiff = targetYaw - currentYaw
+                                
+                                -- Normalize angle difference to [-π, π]
+                                if yawDiff > math.pi then
+                                    yawDiff = yawDiff - 2 * math.pi
+                                elseif yawDiff < -math.pi then
+                                    yawDiff = yawDiff + 2 * math.pi
+                                end
+                                
+                                -- Apply smooth camera rotation
+                                local maxTurnSpeed = math.rad(120) -- degrees per second
+                                local turnSpeed = math.min(math.abs(yawDiff), maxTurnSpeed * deltaTime)
+                                local actualTurn = turnSpeed * (yawDiff > 0 and 1 or -1)
+                                
+                                local newYaw = currentYaw + actualTurn
+                                local newDirection = Vector3.new(-math.sin(newYaw), currentDirection.Y, -math.cos(newYaw))
+                                
+                                -- Create new camera CFrame with smooth rotation
+                                local newCFrame = CFrame.lookAt(currentPos, currentPos + newDirection)
+                                Camera.CFrame = newCFrame
                             end
                         end
                     else
+                        -- First person camera aiming - Fixed logic
                         local currentCFrame = Camera.CFrame
                         local targetDirection = (predictedPosition - currentCFrame.Position).Unit
                         local currentDirection = currentCFrame.LookVector
 
+                        -- Calculate the angle between current look direction and target
                         local angle = math.acos(math.clamp(currentDirection:Dot(targetDirection), -1, 1))
                         
+                        -- Handle targets behind the player (> 90 degrees)
                         if angle > math.rad(90) then
-                            local rightVector = currentCFrame.RightVector
-                            local targetCross = currentDirection:Cross(targetDirection)
-                            local rightDot = rightVector:Dot(targetCross)
+                            -- Calculate horizontal rotation needed
+                            local currentPos = currentCFrame.Position
+                            local targetPos = predictedPosition
                             
-                            local turnMultiplier = rightDot > 0 and 1 or -1
-                            local maxTurnSpeed = math.rad(120)
-                            local turnSpeed = math.min(angle, maxTurnSpeed * deltaTime) * turnMultiplier
+                            -- Project target position onto horizontal plane
+                            local horizontalTarget = Vector3.new(targetPos.X, currentPos.Y, targetPos.Z)
+                            local horizontalDirection = (horizontalTarget - currentPos).Unit
                             
-                            local rotationAxis = Vector3.new(0, 1, 0) 
-                            local intermediateDirection = currentDirection * math.cos(turnSpeed) + rightVector * math.sin(turnSpeed)
-                            local intermediateTarget = currentCFrame.Position + intermediateDirection * 100
+                            -- Calculate yaw rotation needed
+                            local currentYaw = math.atan2(-currentDirection.X, -currentDirection.Z)
+                            local targetYaw = math.atan2(-horizontalDirection.X, -horizontalDirection.Z)
+                            local yawDiff = targetYaw - currentYaw
                             
-                            local newCFrame = CFrame.new(currentCFrame.Position, intermediateTarget)
-                            Camera.CFrame = newCFrame
-                        else
-                            local lerpFactor = GetSmoothingFactor(Environment.Settings.Sensitivity, deltaTime)
-                            
-                            if angle < math.rad(30) then
-                                lerpFactor = math.min(lerpFactor * 1.5, 1)
+                            -- Normalize angle difference to [-π, π]
+                            if yawDiff > math.pi then
+                                yawDiff = yawDiff - 2 * math.pi
+                            elseif yawDiff < -math.pi then
+                                yawDiff = yawDiff + 2 * math.pi
                             end
                             
-                            local targetCFrame = CFrame.new(currentCFrame.Position, predictedPosition)
+                            -- Apply smooth rotation towards target
+                            local maxTurnSpeed = math.rad(180) -- degrees per second
+                            local turnSpeed = math.min(math.abs(yawDiff), maxTurnSpeed * deltaTime)
+                            local actualTurn = turnSpeed * (yawDiff > 0 and 1 or -1)
+                            
+                            local newYaw = currentYaw + actualTurn
+                            local newDirection = Vector3.new(-math.sin(newYaw), 0, -math.cos(newYaw))
+                            
+                            -- Create new camera CFrame with smooth rotation
+                            local newCFrame = CFrame.lookAt(currentPos, currentPos + newDirection)
+                            Camera.CFrame = newCFrame
+                        else
+                            -- Target is in front, use normal aiming
+                            local lerpFactor = GetSmoothingFactor(Environment.Settings.Sensitivity, deltaTime, Environment.Settings.AutoLock)
+                            
+                            -- Increase smoothing for close targets to reduce jitter
+                            if angle < math.rad(15) then
+                                lerpFactor = math.min(lerpFactor * 0.7, 1)
+                            elseif angle < math.rad(30) then
+                                lerpFactor = math.min(lerpFactor * 0.85, 1)
+                            end
+                            
+                            local targetCFrame = CFrame.lookAt(currentCFrame.Position, predictedPosition)
                             Camera.CFrame = Environment.Settings.Sensitivity == 0 and targetCFrame or
                                 currentCFrame:Lerp(targetCFrame, lerpFactor)
                         end
